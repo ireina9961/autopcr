@@ -219,6 +219,12 @@ tool_modules = ModuleList(
         request_friend,
         friend_list,
         remove_friend,
-        pending_friend_request,
+        pending_list,
+        jjc_back,
+        pjjc_back,
+        jjc_info,
+        pjjc_info,
+        pjjc_def_shuffle_team,
+        pjjc_atk_shuffle_team,
     ]
 )
