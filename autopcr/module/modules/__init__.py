@@ -20,6 +20,7 @@ from .tools import *
 from .travel import *
 from .unit import *
 from .talent import *
+from .friend import *
 
 @dataclass
 class ModuleList:
@@ -215,5 +216,9 @@ tool_modules = ModuleList(
         remove_cb_ex_equip,
         remove_cb_support,
         redeem_unit_swap,
+        request_friend,
+        friend_list,
+        remove_friend,
+        pending_friend_request,
     ]
 )
