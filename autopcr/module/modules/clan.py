@@ -97,3 +97,76 @@ class clan_equip_request(Module):
             self._log(f"请求【{db.get_equip_name(equip_id)}】装备，缺口数量为{num}")
         else:
             raise AbortError("没有可请求的装备")
+
+
+@description('查看当前公会成员列表')
+@name("公会成员列表")
+@default(False)
+class clan_member_list(Module):
+    async def do_task(self, client: pcrclient):
+        clan_info = await client.get_clan_info()
+        members = getattr(getattr(clan_info, 'clan', None), 'members', [])
+        if not members:
+            self._log("未获取到成员信息")
+            return
+
+        members = sorted(
+            members,
+            key=lambda m: (-getattr(m, 'total_power', 0), getattr(m, 'viewer_id', 0))
+        )
+        self._log(f"成员数量：{len(members)}")
+        for idx, member in enumerate(members, 1):
+            name = getattr(member, 'name', '未知')
+            viewer_id = getattr(member, 'viewer_id', 0)
+            level = getattr(member, 'level', 0)
+            power = getattr(member, 'total_power', 0)
+            role = getattr(member, 'clan_role', None)
+            role_name = ""
+            if role is not None:
+                try:
+                    role_name = eClanRole(role).name
+                except Exception:
+                    role_name = str(role)
+            line = f"{idx}. {name}({viewer_id}) Lv{level} 战力:{power}"
+            if role_name:
+                line += f" [{role_name}]"
+            self._log(line)
+
+
+@description('邀请指定玩家加入公会')
+@name("邀请入会")
+@texttype("target_viewer_id", "目标玩家ID", "")
+@default(False)
+class clan_invite_player(Module):
+    async def do_task(self, client: pcrclient):
+        target_viewer_id = self.get_config('target_viewer_id')
+        if not target_viewer_id:
+            raise AbortError("未指定目标玩家ID")
+        
+        try:
+            target_viewer_id = int(target_viewer_id)
+        except ValueError:
+            raise AbortError("玩家ID必须是数字")
+        
+        await client.invite_to_clan(target_viewer_id,"爱你哦")
+        self._log(f"已向玩家 {target_viewer_id} 发送公会邀请")
+
+
+
+@description('快速踢出公会')
+@name("踢出公会")
+@texttype("target_viewer_id", "目标玩家ID", "")
+@default(False)
+class clan_kick_player(Module):
+    async def do_task(self, client: pcrclient):
+        target_viewer_id = self.get_config('target_viewer_id')
+        if not target_viewer_id:
+            raise AbortError("未指定目标玩家ID")
+        
+        try:
+            target_viewer_id = int(target_viewer_id)
+        except ValueError:
+            raise AbortError("玩家ID必须是数字")
+        
+        await client.remove_member(target_viewer_id)
+        self._log(f"已踢出 {target_viewer_id} ")

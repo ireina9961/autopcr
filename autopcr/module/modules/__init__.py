@@ -220,11 +220,14 @@ tool_modules = ModuleList(
         friend_list,
         remove_friend,
         pending_list,
+        clan_invite_player,
+        clan_kick_player,
         jjc_back,
         pjjc_back,
         jjc_info,
         pjjc_info,
         pjjc_def_shuffle_team,
         pjjc_atk_shuffle_team,
+        clan_member_list,
     ]
 )

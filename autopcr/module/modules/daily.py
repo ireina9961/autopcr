@@ -1,3 +1,4 @@
+import asyncio
 from typing import List
 
 from ...model.common import InventoryInfo

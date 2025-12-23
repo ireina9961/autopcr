@@ -1,6 +1,7 @@
 from collections import Counter
 from typing import Any, Callable, Coroutine, Dict, List, Tuple, Union
 from pathlib import Path
+import re
 
 from .autopcr.module.accountmgr import BATCHINFO, AccountBatch, TaskResultInfo
 from .autopcr.module.modulebase import eResultStatus
@@ -65,6 +66,7 @@ sv_help = f"""
 - {prefix}查公会深域 查询公会深域通关情况
 - {prefix}刷图推荐 [<rank>] [fav] 查询缺口装备的刷图推荐，格式同上
 - {prefix}公会支援 查询公会支援角色配置
+- {prefix}公会成员 查看公会成员列表
 - {prefix}卡池 查看当前卡池
 - {prefix}编队 1 1 春妈 蝶妈 狗妈 水妈 礼妈 便捷设置编队
 - {prefix}一键编队 1 1 队名1 星级角色1 星级角色2 ... 星级角色5 队名2 星级角色1 星级角色2 END 设置多队编队，队伍不足5人以END结尾
@@ -77,6 +79,8 @@ sv_help = f"""
 - {prefix}pjjc换防
 - {prefix}pjjc进攻
 - {prefix}好友相关
+- {prefix}拉人 <uid> 向指定玩家发送公会邀请
+- {prefix}踢人 <uid> 快速踢出公会
 """.strip()
 
 if address is None:
@@ -740,10 +744,19 @@ async def tool_used(botev: BotEvent, tool: ToolInfo, config: Dict[str, str], acc
             timestamp = db.format_time_safe(datetime.datetime.now())
             await upload_excel(botev, data, f"{tool.name}_{alias}_{timestamp}.xlsx", 'autopcr')
         else:
-            img = await drawer.draw_task_result(resp)
-            msg = f"{alias}"
-            msg += outp_b64(img)
-            await botev.send(msg)
+            uid_pattern = re.compile(r'\b\d{13}\b')  
+            has_13_digit_uid = bool(uid_pattern.search(resp.log))  
+            
+            if has_13_digit_uid:  
+                # 发送文字  
+                msg = f"{alias}\n{resp.log}"  
+                await botev.send(msg)  
+            else:  
+                # 发送图片(原有逻辑)  
+                img = await drawer.draw_task_result(resp)  
+                msg = f"{alias}"  
+                msg += outp_b64(img)  
+                await botev.send(msg) 
     except Exception as e:
         logger.exception(e)
         await botev.send(f'{alias}: {e}')
@@ -762,6 +775,10 @@ def is_args_exist(msg: List[str], key: str):
 
 @register_tool("公会支援", 'get_clan_support_unit')
 async def clan_support(botev: BotEvent):
+    return {}
+
+@register_tool("公会成员", "clan_member_list")
+async def clan_member_list_tool(botev: BotEvent):
     return {}
 
 @register_tool("查心碎", "get_need_xinsui")
@@ -1278,7 +1295,39 @@ async def remove_friend(botev: BotEvent):
     }  
     return config  
   
+  
 @register_tool("申请列表", "pending_list")  
 async def pending_list(botev: BotEvent):  
     return {}
+
+@register_tool("拉人", "clan_invite_player")
+async def clan_invite_player(botev: BotEvent):
+    msg = await botev.message()  
+    target_viewer_id = 0  
+    try:  
+        target_viewer_id = int(msg[0])  
+        del msg[0]  
+    except:  
+        await botev.finish("请输入目标玩家ID")  
     
+      
+    config = {  
+        "target_viewer_id": target_viewer_id,  
+    }  
+    return config  
+
+@register_tool("踢人", "clan_kick_player")
+async def clan_kick_player(botev: BotEvent):
+    msg = await botev.message()  
+    target_viewer_id = 0  
+    try:  
+        target_viewer_id = int(msg[0])  
+        del msg[0]  
+    except:  
+        await botev.finish("请输入目标玩家ID")  
+    
+      
+    config = {  
+        "target_viewer_id": target_viewer_id,  
+    }  
+    return config
