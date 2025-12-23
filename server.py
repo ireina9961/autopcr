@@ -66,7 +66,6 @@ sv_help = f"""
 - {prefix}查公会深域 查询公会深域通关情况
 - {prefix}刷图推荐 [<rank>] [fav] 查询缺口装备的刷图推荐，格式同上
 - {prefix}公会支援 查询公会支援角色配置
-- {prefix}公会成员 查看公会成员列表
 - {prefix}卡池 查看当前卡池
 - {prefix}编队 1 1 春妈 蝶妈 狗妈 水妈 礼妈 便捷设置编队
 - {prefix}一键编队 1 1 队名1 星级角色1 星级角色2 ... 星级角色5 队名2 星级角色1 星级角色2 END 设置多队编队，队伍不足5人以END结尾
@@ -81,6 +80,7 @@ sv_help = f"""
 - {prefix}好友相关
 - {prefix}拉人 <uid> 向指定玩家发送公会邀请
 - {prefix}踢人 <uid> 快速踢出公会
+- {prefix}公会成员 查看公会成员列表
 """.strip()
 
 if address is None:
@@ -723,7 +723,7 @@ async def config_clear_daily(botev: BotEvent):
 @wrap_account
 @wrap_config
 @check_final_args_be_empty
-async def tool_used(botev: BotEvent, tool: ToolInfo, config: Dict[str, str], acc: Union[AccountBatch, Account], export: bool):
+async def tool_used(botev: BotEvent, tool: ToolInfo, config: Dict[str, str], acc: Union[AccountBatch, Account], export: bool, text:bool = False):
     alias = escape(acc.alias)
     try:
         loop = asyncio.get_event_loop()
@@ -744,15 +744,10 @@ async def tool_used(botev: BotEvent, tool: ToolInfo, config: Dict[str, str], acc
             timestamp = db.format_time_safe(datetime.datetime.now())
             await upload_excel(botev, data, f"{tool.name}_{alias}_{timestamp}.xlsx", 'autopcr')
         else:
-            uid_pattern = re.compile(r'\b\d{13}\b')  
-            has_13_digit_uid = bool(uid_pattern.search(resp.log))  
-            
-            if has_13_digit_uid:  
-                # 发送文字  
+            if text:  
                 msg = f"{alias}\n{resp.log}"  
                 await botev.send(msg)  
             else:  
-                # 发送图片(原有逻辑)  
                 img = await drawer.draw_task_result(resp)  
                 msg = f"{alias}"  
                 msg += outp_b64(img)  
