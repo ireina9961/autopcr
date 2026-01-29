@@ -111,8 +111,8 @@ class clan_member_list(Module):
             return
 
         members = sorted(
-            members,
-            key=lambda m: (-getattr(m, 'total_power', 0), getattr(m, 'viewer_id', 0))
+                members,
+                key=lambda m: (-m.total_power, m.viewer_id)
         )
         self._log(f"成员数量：{len(members)}")
         for idx, member in enumerate(members, 1):

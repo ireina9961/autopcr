@@ -25,7 +25,9 @@ class abyss_quest_sweep(DIY_sweep):
             for quest in db.abyss_quest_info[abyss_id]:
                 ret.append((quest.quest_id, client.data.settings.abyss.daily_clear_limit_count))
         if not ret:
-            raise SkipError("当前无进行中的深渊讨伐战")
+            self._log("当前无进行中的深渊讨伐战")
+        if ret:
+            self._log("讨伐战ID：" + str(abyss_id))
         return ret
 
 @description('''
