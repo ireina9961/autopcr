@@ -22,6 +22,7 @@ from .travel import *
 from .unit import *
 from .talent import *
 from .friend import *
+from .mirage import *
 
 @dataclass
 class ModuleList:
@@ -69,6 +70,8 @@ daily_modules = ModuleList(
         explore_mana,
         underground_skip,
         special_underground_skip,
+        mirage_floor_receive,
+        mirage_nemesis_sweep,
         tower_cloister_sweep,
         jjc_reward,
         abyss_quest_sweep,
@@ -124,6 +127,7 @@ daily_modules = ModuleList(
         clan_equip_request,
         love_up,
         shiori_mission_check,
+        alces_story_reading,
         main_story_reading,
         tower_story_reading,
         hatsune_story_reading,
@@ -202,6 +206,7 @@ tool_modules = ModuleList(
     '工具',
     'tool',
     [
+        ex_equip_rainbow_enchance,
         ex_equip_power_maximun,
         find_talent_quest,
         find_clan_talent_quest,
