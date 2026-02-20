@@ -1087,8 +1087,24 @@ async def set_my_party(botev: BotEvent):
     }
     return config
 
-@register_tool("一键编队", "set_my_party")
+def is_args_exist(msg: List[str], key: str):
+    if key in msg:
+        msg.remove(key)
+        return True
+    return False
+
+def recover_text_by_tokens(raw_text: str, tokens: List[str]) -> str:
+    if not tokens:
+        return ""
+    pattern = r"\s+".join(re.escape(token) for token in tokens)
+    match = re.search(pattern, raw_text, flags=re.S)
+    if match:
+        return raw_text[match.start():match.end()]
+    return " ".join(tokens)
+
+@register_tool("一键编队", "set_my_party2")
 async def set_my_party_multi(botev: BotEvent):
+    raw_msg = await botev.message_raw()
     msg = await botev.message()
     party_start_num = 1
     tab_start_num = 1
@@ -1102,57 +1118,14 @@ async def set_my_party_multi(botev: BotEvent):
         del msg[0]
     except:
         pass
-    unknown_units = []
-    token = []
-    while True:
-        if not msg:
-            break
-        if get_id_from_name(msg[0]) or msg[0][0].isdigit() and get_id_from_name(msg[0][1:]):
-            title = "自定义编队"
-        else:
-            title = msg[0]
-            del msg[0]
-        units = []
-        stars = []
-        for _ in range(5):
-            try:
-                unit_name = msg[0]
-                if msg[0] == "END":
-                    del msg[0]
-                    break
 
-                unit = get_id_from_name(unit_name)
-                if unit:
-                    units.append(unit)
-                    stars.append(6 if unit*100+1 in db.unit_to_pure_memory else 5)
-                else:
-                    if unit_name[0].isdigit():
-                        star = int(unit_name[0])
-                        unit = get_id_from_name(unit_name[1:])
-                        if unit:
-                            units.append(unit)
-                            stars.append(star)
-                        else:
-                            unknown_units.append(unit_name)
-                    else:
-                        unknown_units.append(unit_name)
-                del msg[0]
-            except:
-                pass
-        token.append( (title, units, stars) )
-
-    if unknown_units:
-        await botev.finish(f"未知昵称{', '.join(unknown_units)}")
-    if not token:
-        await botev.finish("无法识别任何编队")
-    set_my_party_text = "\n".join(
-        f"{title}\n" + "\n".join(f"{unit * 100 + 1}\t{db.get_unit_name(unit*100+1)}\t1\t{star}" for unit, star in zip(units, stars))
-        for title, units, stars in token)
+    teams_text = recover_text_by_tokens(raw_msg, msg)
     config = {
-        "tab_start_num": tab_start_num,
-        "party_start_num": party_start_num,
-        "set_my_party_text": set_my_party_text,
+        "tab_start_num2": tab_start_num,
+        "party_start_num2": party_start_num,
+        "set_my_party_text2": teams_text,
     }
+    del msg[:]
     return config
 
 # @register_tool("获取导入", "get_library_import_data")
