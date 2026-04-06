@@ -7,6 +7,9 @@ from ...model.custom import eDifficulty
 from ...db.database import db
 from ...model.enums import *
 from .autosweep import DIY_sweep
+import json
+
+_ABYSS_CONFIG_WRITTEN = False
 
 @description('''
 不扫等于15天不上线
@@ -26,8 +29,16 @@ class abyss_quest_sweep(DIY_sweep):
                 ret.append((quest.quest_id, client.data.settings.abyss.daily_clear_limit_count))
         if not ret:
             self._log("当前无进行中的深渊讨伐战")
-        if ret:
+        else:
             self._log("讨伐战ID：" + str(abyss_id))
+            self._log("物品ID：" + str(abyss.boss_ticket_id))
+
+            global _ABYSS_CONFIG_WRITTEN
+            if not _ABYSS_CONFIG_WRITTEN:
+                with open("/opt/hoshino_pcr/hoshino/modules/autobox/abyss_id_config.json", "w", encoding="utf-8") as f:
+                    json.dump({"abyss_id": abyss_id, "boss_ticket_id": abyss.boss_ticket_id}, f, ensure_ascii=False)
+                _ABYSS_CONFIG_WRITTEN = True
+
         return ret
 
 @description('''

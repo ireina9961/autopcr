@@ -1104,7 +1104,7 @@ def recover_text_by_tokens(raw_text: str, tokens: List[str]) -> str:
 
 @register_tool("一键编队", "set_my_party2")
 async def set_my_party_multi(botev: BotEvent):
-    raw_msg = await botev.message_raw()
+    raw_msg = botev.ev.raw_message
     msg = await botev.message()
     party_start_num = 1
     tab_start_num = 1

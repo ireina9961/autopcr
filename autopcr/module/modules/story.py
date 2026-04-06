@@ -68,11 +68,13 @@ class birthday_story_reading(Module):
 @default(False)
 class unit_story_reading(Module):
     async def do_task(self, client: pcrclient):
+        self._log(f"暂时关闭该功能")
+        return
         read_story = set(client.data.read_story_ids)
         read_story.add(0) # no pre story
         now = apiclient.datetime
         for story in db.unit_story:
-            if story.story_group_id == 1255:  # 忽略魔姬剧情
+            if story.story_group_id == 1295:  # 忽略魔姬剧情
                 continue
             if (
                 story.read_process_flag and
