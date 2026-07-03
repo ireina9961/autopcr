@@ -400,9 +400,11 @@ unique_equip_2_pure_memory_id = [
         111901, # 春妈
         116701, # 工菜
         116901, # 电子龙
+        107601, # 水妈
+        107801, # 水黑
 ]
 @conditional_execution1("very_hard_sweep_run_time", ["vh庆典"])
-@description('储备专二需求的150碎片（目标角色见模块内 `unique_equip_2_pure_memory_id`）')
+@description('储备专二需求的150碎片' + ','.join(db.get_unit_name(unit_id) for unit_id in unique_equip_2_pure_memory_id))
 @name('专二纯净碎片储备')
 @default(False)
 @tag_stamina_consume
@@ -431,6 +433,116 @@ class mirai_very_hard_sweep(simple_demand_sweep_base):
 
     def get_max_times(self, client: pcrclient, quest_id: int) -> int:
         return 5 if db.is_shiori_quest(quest_id) else 3
+
+class UniqueEquip1SPMemory():
+    class Type(IntEnum):
+        Present = 0
+        Sweep = 1
+        NormalShop = 2
+        MasterShop = 4
+
+    typeName = {
+        Type.Present: "赠送",
+        Type.Sweep: "刷图",
+        Type.NormalShop: "商店",
+        Type.MasterShop: "限定",
+    }
+
+    unique_equip_1_sp_memory_id = [
+        (103201, Type.Present), # 哈哈剑 送515
+        (102801, Type.Present), # 充电宝 送515
+        (100101, Type.Present), # 猫拳 送515
+        (101001, Type.Present), # 真步 送515
+        (100401, Type.NormalShop), # 炸弹人 商店换
+        (106101, Type.MasterShop), # 611 商店换
+        (103601, Type.Present), # xcw 送515
+        (106401, Type.Present), # 雪菲 送515
+        (107701, Type.MasterShop), # 水女仆 商店换
+        (107901, Type.MasterShop), # 水猫剑 商店换
+        (104801, Type.Sweep), # 子龙
+        (108001, Type.Sweep), # 水子龙
+        (102301, Type.NormalShop), # 熊锤 商店换
+        (106301, Type.Sweep), # yls
+        (102101, Type.Sweep), # 铃铛
+        (105901, Type.Present), # 普白 送515
+        (103701, Type.Present), # 智 送515
+        (102001, Type.Sweep), # 兔子
+        (101401, Type.Present), # 驴 送515
+        (105701, Type.Sweep), # 姬塔
+        (101601, Type.NormalShop), # 暴击弓 商店换
+        (101201, Type.Present), # 星法 送515
+        (105801, Type.Present), # 吃货 送515
+        (103401, Type.NormalShop), # 黄骑 商店换
+        (100601, Type.NormalShop), # 妹法 商店换
+        (104401, Type.Sweep), # yly
+        (106001, Type.Present), # 黑猫 送515
+        (105101, Type.NormalShop), # 深月 商店换
+        (100701, Type.NormalShop), # 布丁 商店换
+        (102201, Type.NormalShop), # 姐法 商店换
+        (109201, Type.Sweep), # 安
+        (109301, Type.Sweep), # 露
+        (109401, Type.Sweep), # 龙女
+    ]
+
+    @staticmethod
+    def get_unit_demand(_type: Optional[Type] = None) -> Iterator:
+        for unit_id, t in UniqueEquip1SPMemory.unique_equip_1_sp_memory_id:
+            if _type is None or (t & _type) == _type:
+                yield unit_id
+
+@conditional_not_execution("mirai_sp1_h_sweep_not_run_time", [])
+@conditional_execution1("mirai_sp1_h_sweep_run_time", ["h庆典"])
+@description('储备专一SP需求的300碎片' + ','.join(db.get_unit_name(unit_id) for unit_id in UniqueEquip1SPMemory.get_unit_demand(UniqueEquip1SPMemory.Type.Sweep)))
+@name('专一SP碎片储备(H本)')
+@default(False)
+@tag_stamina_consume
+class mirai_sp1_h_sweep(simple_demand_sweep_base):
+
+    async def get_need_list(self, client: pcrclient) -> List[Tuple[ItemType, int]]:
+        memory_gap = client.data.get_memory_demand_gap()
+        target = Counter()
+        need_list = []
+        for unit in UniqueEquip1SPMemory.get_unit_demand(UniqueEquip1SPMemory.Type.Sweep):
+            token = (eInventoryType.Item, db.unit_to_memory[unit])
+            target[unit] += 300
+            if -memory_gap[token] < target[unit]:
+                need_list.append((token, target[unit] - memory_gap[token]))
+        if not need_list:
+            raise SkipError("所有角色碎片均已盈余")
+        return need_list
+
+    def get_need_quest(self, token: ItemType) -> List[QuestDatum]:
+        return db.memory_hard_quest.get(token, [])
+
+    def get_max_times(self, client: pcrclient, quest_id: int) -> int:
+        return 3
+
+@conditional_not_execution("mirai_sp1_shiori_sweep_not_run_time", ["n3", 'n4及以上'])
+@conditional_execution1("mirai_sp1_shiori_sweep_run_time", ["无庆典"])
+@description('储备专一SP需求的300碎片' + ','.join(db.get_unit_name(unit_id) for unit_id in UniqueEquip1SPMemory.get_unit_demand(UniqueEquip1SPMemory.Type.Sweep)))
+@name('专一SP碎片储备(外传)')
+@default(False)
+@tag_stamina_consume
+class mirai_sp1_shiori_sweep(simple_demand_sweep_base):
+
+    async def get_need_list(self, client: pcrclient) -> List[Tuple[ItemType, int]]:
+        memory_gap = client.data.get_memory_demand_gap()
+        target = Counter()
+        need_list = []
+        for unit in UniqueEquip1SPMemory.get_unit_demand(UniqueEquip1SPMemory.Type.Sweep):
+            token = (eInventoryType.Item, db.unit_to_memory[unit])
+            target[unit] += 300
+            if -memory_gap[token] < target[unit]:
+                need_list.append((token, target[unit] - memory_gap[token]))
+        if not need_list:
+            raise SkipError("所有角色碎片均已盈余")
+        return need_list
+
+    def get_need_quest(self, token: ItemType) -> List[QuestDatum]:
+        return db.memory_shiori_quest.get(token, [])
+
+    def get_max_times(self, client: pcrclient, quest_id: int) -> int:
+        return 5
 
 @singlechoice("vh_sweep_campaign_times", "庆典次数", 3, [0, 3, 6])
 @singlechoice("vh_sweep_times", "非庆典次数", 3, [0, 3, 6])
