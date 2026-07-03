@@ -69,8 +69,6 @@ class birthday_story_reading(Module):
 @default(False)
 class unit_story_reading(Module):
     async def do_task(self, client: pcrclient):
-        self._log(f"暂时关闭该功能")
-        return
         read_story = set(client.data.read_story_ids)
         read_story.add(0) # no pre story
         now = apiclient.datetime

@@ -6,8 +6,12 @@ from .misc import errorhandler, mutexhandler
 from .datamgr import datamgr
 from ..db.database import db
 from typing import Callable, Tuple, Union
+import json
+import os
 import typing, math
 from collections import Counter
+
+_SEVEN_GACHA_CONFIG_WRITTEN = False
 
 class eLoginStatus(Enum):
     NOT_LOGGED = 0
@@ -1107,6 +1111,21 @@ class pcrclient(apiclient):
         req = SevenGachaIndexRequest()
         req.schedule_id = db.get_event_schedule_id(event_id)
         req.gacha_id = db.get_event_gacha_id(event_id)
+        global _SEVEN_GACHA_CONFIG_WRITTEN
+        if not _SEVEN_GACHA_CONFIG_WRITTEN:
+            config_path = "/opt/hoshino_pcr/hoshino/modules/autobox/abyss_id_config.json"
+            data = {}
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        data = json.load(f) or {}
+                except Exception:
+                    data = {}
+            data["schedule_id"] = req.schedule_id
+            data["gacha_id"] = req.gacha_id
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False)
+            _SEVEN_GACHA_CONFIG_WRITTEN = True
         return await self.request(req)
 
     async def hatsune_boss_skip(self, event_id: int, boss_id: int, times: int, ticket: int):

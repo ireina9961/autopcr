@@ -359,10 +359,35 @@ UnavailableChara = {
 若暂无台服官译则用日文原名占位，一律使用半角括号
 '''
 import json
+import os
 
-# 读取 JSON 文件并转换键类型
-with open("/opt/hoshino_pcr/hoshino/modules/autobox/CHARA_NAME.json", 'r', encoding='utf-8') as f:
-    CHARA_NAME = {int(k): v for k, v in json.load(f).items()}
+# CHARA_NAME.json 的路径。若文件有变更，会在查询时自动重载。
+CHARA_NAME_PATH = "/opt/hoshino_pcr/hoshino/modules/autobox/CHARA_NAME.json"
+CHARA_NAME = {}
+_CHARA_NAME_MTIME = None
+
+
+def _load_chara_name():
+    with open(CHARA_NAME_PATH, 'r', encoding='utf-8') as f:
+        chara_name = {int(k): v for k, v in json.load(f).items()}
+
+    for i in chara_name:
+        if i in CHARA_NICKNAME and CHARA_NICKNAME[i] not in chara_name[i]:
+            chara_name[i].append(CHARA_NICKNAME[i])
+    return chara_name
+
+
+def _reload_chara_name_if_changed(force=False):
+    global CHARA_NAME
+    global _CHARA_NAME_MTIME
+
+    mtime = os.path.getmtime(CHARA_NAME_PATH)
+    if force or _CHARA_NAME_MTIME is None or mtime != _CHARA_NAME_MTIME:
+        CHARA_NAME = _load_chara_name()
+        _CHARA_NAME_MTIME = mtime
+
+
+_reload_chara_name_if_changed(force=True)
 
 
 
@@ -484,14 +509,11 @@ CHARA_PROFILE = {
 
 
 def get_id_from_name(name):
+    _reload_chara_name_if_changed()
     for i in CHARA_NAME:
         if name in CHARA_NAME[i]:
             return i
     return None
-
-for i in CHARA_NAME:
-    if i in CHARA_NICKNAME:
-        CHARA_NAME[i].append(CHARA_NICKNAME[i])
 
 # for i in CHARA_NAME:
     # print(CHARA_NAME[i][0])

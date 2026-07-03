@@ -35,8 +35,17 @@ class abyss_quest_sweep(DIY_sweep):
 
             global _ABYSS_CONFIG_WRITTEN
             if not _ABYSS_CONFIG_WRITTEN:
-                with open("/opt/hoshino_pcr/hoshino/modules/autobox/abyss_id_config.json", "w", encoding="utf-8") as f:
-                    json.dump({"abyss_id": abyss_id, "boss_ticket_id": abyss.boss_ticket_id}, f, ensure_ascii=False)
+                config_path = "/opt/hoshino_pcr/hoshino/modules/autobox/abyss_id_config.json"
+                data = {}
+                try:
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        data = json.load(f) or {}
+                except Exception:
+                    data = {}
+                data["abyss_id"] = abyss_id
+                data["boss_ticket_id"] = abyss.boss_ticket_id
+                with open(config_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False)
                 _ABYSS_CONFIG_WRITTEN = True
 
         return ret
