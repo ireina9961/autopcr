@@ -142,6 +142,7 @@ class Config:
         """Make the Config instance callable for use as a decorator."""
         return _wrap_init(cls, lambda cls: self.wrap_init(cls, copy(self)))
 
+
 class BoolConfig(Config):
     @property
     def config_type(self):
