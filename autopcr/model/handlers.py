@@ -574,6 +574,18 @@ class HomeIndexResponse(responses.HomeIndexResponse):
 
 
 @handles
+class LabyrinthSkipResponse(responses.LabyrinthSkipResponse):
+    async def update(self, mgr: datamgr, request: LabyrinthSkipRequest):
+        for reward_list in (
+            self.skip_reward_list,
+            self.treasure_box_reward_list,
+            self.item_list,
+        ):
+            for item in reward_list or []:
+                mgr.update_inventory(item)
+
+
+@handles
 class HatsuneQuestTopResponse(responses.HatsuneQuestTopResponse):
     async def update(self, mgr: datamgr, request):
         mgr.hatsune_quest_dict[request.event_id] = {q.quest_id: q for q in (self.quest_list or [])}
@@ -1543,7 +1555,7 @@ class AlcesReadStoryResponse(responses.AlcesReadStoryResponse):
         mgr.alces_appear_story_flag = 0
 
 @handles
-class AlcesExecResponse(responses.AlcesExecResponse):
+class AlcesExecSubStatusResponse(responses.AlcesExecSubStatusResponse):
     async def update(self, mgr: datamgr, request):
         if self.current_alces_point:
             mgr.update_inventory(self.current_alces_point)
@@ -1551,7 +1563,15 @@ class AlcesExecResponse(responses.AlcesExecResponse):
             mgr.gold = self.user_gold
 
 @handles
-class AlcesFixResultResponse(responses.AlcesFixResultResponse):
+class AlcesExecSubStatusAutoResponse(responses.AlcesExecSubStatusAutoResponse):
+    async def update(self, mgr: datamgr, request):
+        if self.after_alces_point:
+            mgr.update_inventory(self.after_alces_point)
+        if self.user_gold:
+            mgr.gold = self.user_gold
+
+@handles
+class AlcesFixSubStatusResultResponse(responses.AlcesFixSubStatusResultResponse):
     async def update(self, mgr: datamgr, request):
         mgr.ex_equips[self.fixed_alces_data.serial_id] = self.fixed_alces_data
 
@@ -1571,6 +1591,9 @@ class UnitRoleGachaIndexResponse(responses.UnitRoleGachaIndexResponse):
 class UnitRoleGachaExecResponse(responses.UnitRoleGachaExecResponse):
     async def update(self, mgr: datamgr, request):
         mgr.unit_role_gacha_exec_count = self.exec_count
+        if self.reward_info_list:
+            for item in self.reward_info_list:
+                mgr.update_inventory(item)
 
 
 # 菜 就别玩
