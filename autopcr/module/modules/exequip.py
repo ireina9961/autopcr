@@ -524,6 +524,13 @@ class ex_equip_state(Module):
             grouped.setdefault(unit_id, []).append(ExtraEquipChangeSlot(slot=slot, serial_id=serial_id))
         return [ExtraEquipChangeUnit(unit_id=unit_id, ex_equip_slot=slots, cb_ex_equip_slot=None) for unit_id, slots in grouped.items()]
 
+    async def apply_ex_equip_changes(self, client: pcrclient, changes):
+        # The game endpoint only handles a small change set reliably. Other EX
+        # equipment modules also submit one unit per request, so keep restore
+        # operations within the same boundary instead of sending the whole box.
+        for unit_change in self.group_ex_equip_changes(changes):
+            await client.unit_equip_ex([unit_change])
+
     async def do_task(self, client: pcrclient):
         action = self.get_config('ex_equip_state_action')
         if action == '保存':
@@ -589,9 +596,9 @@ class ex_equip_state(Module):
             raise SkipError("当前普通EX装备状态与保存状态一致")
 
         if remove_changes:
-            await client.unit_equip_ex(self.group_ex_equip_changes(remove_changes))
+            await self.apply_ex_equip_changes(client, remove_changes)
         if apply_changes:
-            await client.unit_equip_ex(self.group_ex_equip_changes(apply_changes))
+            await self.apply_ex_equip_changes(client, apply_changes)
 
         self._log(f"恢复了{len(apply_changes)}个普通EX装备槽位")
 
