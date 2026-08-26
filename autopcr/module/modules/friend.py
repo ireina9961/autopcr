@@ -1,5 +1,5 @@
-from ..config import default, description, name, texttype
-from ..modulebase import AbortError, Module
+from ..config import texttype
+from ..modulebase import AbortError, Module, default, description, name
 from ...core.apiclient import ApiException
 from ...core.pcrclient import pcrclient
 from ...model.requests import (
