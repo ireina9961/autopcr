@@ -59,8 +59,8 @@ sv_help = f"""
 - {prefix}查角色 [昵称] 查看角色练度
 - {prefix}查缺角色 查看缺少的限定常驻角色
 - {prefix}查ex装备 [会战] 查看ex装备库存
-- {prefix}保存EX状态 [昵称] 保存当前普通EX装备穿戴状态
-- {prefix}恢复EX状态 [昵称] 恢复已保存的普通EX装备穿戴状态
+- {prefix}保存EX状态|保存ex状态 [昵称] 保存当前普通EX装备穿戴状态
+- {prefix}恢复EX状态|恢复ex状态 [昵称] 恢复已保存的普通EX装备穿戴状态
 - {prefix}查探险编队 根据记忆碎片角色编队战力相当的队伍
 - {prefix}查兑换角色碎片 [开换] 查询兑换特别角色的记忆碎片策略
 - {prefix}查心碎 查询缺口心碎
@@ -1050,6 +1050,16 @@ async def save_ex_equip_state(botev: BotEvent):
 
 @register_tool("恢复EX状态", "ex_equip_state")
 async def restore_ex_equip_state(botev: BotEvent):
+    return {"ex_equip_state_action": "恢复"}
+
+
+@register_tool("保存ex状态", "ex_equip_state")
+async def save_ex_equip_state_lowercase(botev: BotEvent):
+    return {"ex_equip_state_action": "保存"}
+
+
+@register_tool("恢复ex状态", "ex_equip_state")
+async def restore_ex_equip_state_lowercase(botev: BotEvent):
     return {"ex_equip_state_action": "恢复"}
 
 
