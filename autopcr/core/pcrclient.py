@@ -5,13 +5,11 @@ from .sessionmgr import sessionmgr
 from .misc import errorhandler, mutexhandler
 from .datamgr import datamgr
 from ..db.database import db
+from ..constants import AUTOBOX_CONFIG_PATH
+from ..util.integration import update_json_config
 from typing import Callable, Tuple, Union
-import json
-import os
 import typing, math
 from collections import Counter
-
-_SEVEN_GACHA_CONFIG_WRITTEN = False
 
 class eLoginStatus(Enum):
     NOT_LOGGED = 0
@@ -440,7 +438,7 @@ class pcrclient(apiclient):
         req.travel_id = travel_id
         req.ex_auto_recycle_option = ex_auto_recycle_option
         return await self.request(req)
-        
+
     async def travel_update_priority_unit_list(self, unit_id_list: List[int]):
         req = TravelUpdatePriorityUnitListRequest()
         req.unit_id_list = unit_id_list
@@ -455,7 +453,7 @@ class pcrclient(apiclient):
         cnt = len(units)
         units = db.deck_sort_unit(units)
         for i in range(1, 6):
-            setattr(req, f"unit_id_{i}",units[i - 1] if i <= cnt else 0) 
+            setattr(req, f"unit_id_{i}",units[i - 1] if i <= cnt else 0)
         return await self.request(req)
 
     async def set_growth_item_unique(self, unit_id: int, item_id: int):
@@ -559,7 +557,7 @@ class pcrclient(apiclient):
         req.unit_id = unit_id
         req.item_list = [ItemInfo(item_id=item[1], item_num=count, current_num=self.data.get_inventory(item)) for item, count in item.items()]
         return await self.request(req)
-    
+
     async def unit_exceed_level_limit(self, unit_id: int, exceed_stage: int, cost_item_list: List[InventoryInfoPost]):
         req = UnitExceedLevelLimitRequest()
         req.unit_id = unit_id
@@ -581,7 +579,7 @@ class pcrclient(apiclient):
         req.current_enhance_level = current_enhance_level
         req.after_enhance_level = after_enhance_level
         req.consume_item_list = [EnhanceRecipe(
-                id=item[1], 
+                id=item[1],
                 type=item[0],
                 count=count,
                 current_count=self.data.get_inventory(item)
@@ -785,7 +783,7 @@ class pcrclient(apiclient):
 
         if target_gacha.exchange_id in self.data.gacha_point and  \
         self.data.gacha_point[target_gacha.exchange_id].current_point >= self.data.gacha_point[target_gacha.exchange_id].max_point:
-            raise AbortError(f"已达到天井{self.data.gacha_point[target_gacha.exchange_id].current_point}pt，请上号兑换角色") 
+            raise AbortError(f"已达到天井{self.data.gacha_point[target_gacha.exchange_id].current_point}pt，请上号兑换角色")
 
         if draw_type == eGachaDrawType.Payment: # 怎么回传没有宝石数
             tot = 150 * gacha_times
@@ -1077,7 +1075,7 @@ class pcrclient(apiclient):
         req.total_price = total_price
         return await self.request(req)
 
-    async def shop_buy_bulk(self, shop_id, bought: typing.Counter[int]): 
+    async def shop_buy_bulk(self, shop_id, bought: typing.Counter[int]):
         req = ShopBuyBulkRequest()
         req.system_id = shop_id
         req.buy_item_list = [BuyBulkBuyItemList(slot_id = item, count = cnt) for item, cnt in bought.items()]
@@ -1127,7 +1125,7 @@ class pcrclient(apiclient):
     async def hatsune_mission_receive(self, event_id: int, type: int):
         req = HatsuneMissionAcceptRequest()
         req.event_id = event_id
-        req.type = type 
+        req.type = type
         req.buy_id = 0
         req.id = 0
         return await self.request(req)
@@ -1159,21 +1157,10 @@ class pcrclient(apiclient):
         req = SevenGachaIndexRequest()
         req.schedule_id = db.get_event_schedule_id(event_id)
         req.gacha_id = db.get_event_gacha_id(event_id)
-        global _SEVEN_GACHA_CONFIG_WRITTEN
-        if not _SEVEN_GACHA_CONFIG_WRITTEN:
-            config_path = "/opt/hoshino_pcr/hoshino/modules/autobox/abyss_id_config.json"
-            data = {}
-            if os.path.exists(config_path):
-                try:
-                    with open(config_path, "r", encoding="utf-8") as f:
-                        data = json.load(f) or {}
-                except Exception:
-                    data = {}
-            data["schedule_id"] = req.schedule_id
-            data["gacha_id"] = req.gacha_id
-            with open(config_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False)
-            _SEVEN_GACHA_CONFIG_WRITTEN = True
+        update_json_config(
+            AUTOBOX_CONFIG_PATH,
+            {"schedule_id": req.schedule_id, "gacha_id": req.gacha_id},
+        )
         return await self.request(req)
 
     async def hatsune_boss_skip(self, event_id: int, boss_id: int, times: int, ticket: int):
@@ -1325,20 +1312,20 @@ class pcrclient(apiclient):
         req.clan_id = self.data.clan
         req.remove_viewer_id = user
         return await self.request(req)
-    
+
     async def invite_to_clan(self, user: int, msg: str = ''):
         req = ClanInviteRequest()
         req.invite_message = msg
         req.invited_viewer_id = user
         return await self.request(req)
-    
+
     async def invite_to_clan2(self, other: "pcrclient"):
         await self.invite_to_clan(other.viewer_id)
         for page in range(5):
             if await other.accept_clan_invitation(self.data.clan, page):
                 return
-    
-    async def create_clan(self, name: str = "默认名字", description: str = "默认描述", 
+
+    async def create_clan(self, name: str = "默认名字", description: str = "默认描述",
         cond: eClanJoinCondition = eClanJoinCondition.ONLY_INVITATION,
         guildLine: eClanActivityGuideline = eClanActivityGuideline.GUIDELINE_1):
         req = ClanCreateRequest()
@@ -1362,7 +1349,7 @@ class pcrclient(apiclient):
         req.equip_id = equip_id
         req.clan_id = clan_id
         return await self.request(req)
-    
+
     async def donate_equip(self, request: EquipRequests, times: int):
         req = EquipDonateRequest()
         req.clan_id = self.data.clan
@@ -1370,7 +1357,7 @@ class pcrclient(apiclient):
         req.donation_num = times
         req.message_id = request.message_id
         return await self.request(req)
-    
+
     async def quest_skip(self, quest: int, times: int):
         req = QuestSkipRequest()
         req.current_ticket_num = self.data.get_inventory((eInventoryType.Item, 23001))
@@ -1406,7 +1393,7 @@ class pcrclient(apiclient):
         if db.is_seven_event(event):
             return await self.seven_quest_skip(event, quest, times)
         return await self.hatsune_quest_skip(event, quest, times)
-    
+
     async def training_quest_skip(self, quest: int, times: int):
         req = TrainingQuestSkipRequest()
         req.current_ticket_num = self.data.get_inventory((eInventoryType.Item, 23001))
@@ -1450,7 +1437,7 @@ class pcrclient(apiclient):
         req.clan_id = self.data.clan
         req.message_id = message_id
         return await self.request(req)
-    
+
     async def getrequests(self):
         req = ClanChatInfoListRequest()
         req.clan_id = self.data.clan
@@ -1463,7 +1450,7 @@ class pcrclient(apiclient):
         resp = await self.request(req)
         times = {msg.message_id : msg.create_time for msg in resp.clan_chat_message if msg.message_type == eClanChatMessageType.DONATION}
         return (equip for equip in resp.equip_requests if times[equip.message_id] > self.time - 28800)
-    
+
     async def recover_stamina(self, recover_count: int = 1):
         req = ShopRecoverStaminaRequest()
         req.current_currency_num = self.data.jewel.free_jewel + self.data.jewel.jewel
@@ -1487,19 +1474,19 @@ class pcrclient(apiclient):
         req = GrandArenaHistoryDetailRequest()
         req.log_id = log_id
         return await self.request(req)
-    
+
     async def get_arena_info(self):
         if not self.data.is_quest_cleared(11004006):
             raise SkipError("未解锁竞技场")
         req = ArenaInfoRequest()
         return await self.request(req)
-    
+
     async def get_grand_arena_info(self):
         if not self.data.is_quest_cleared(11008015):
             raise SkipError("未解锁公主竞技场")
         req = GrandArenaInfoRequest()
         return await self.request(req)
-    
+
     async def receive_arena_reward(self):
         req = ArenaTimeRewardAcceptRequest()
         return await self.request(req)
@@ -1517,11 +1504,11 @@ class pcrclient(apiclient):
         req = DungeonSkipRequest()
         req.dungeon_area_id = dungeon_area_id
         return await self.request(req)
-    
+
     async def receive_grand_arena_reward(self):
         req = GrandArenaTimeRewardAcceptRequest()
         return await self.request(req)
-    
+
     async def receive_all(self):
         await self.request(RoomReceiveItemAllRequest())
         req = PresentReceiveAllRequest()
@@ -1580,7 +1567,7 @@ class pcrclient(apiclient):
             result.append(f"{name}x{value}({self.data.get_inventory(key)})")
         return '\n'.join(result) if result else "无"
 
-    async def serlize_reward(self, reward_list: List[InventoryInfo], target: Union[ItemType, None] = None, filter: Union[None, Callable[[ItemType],bool]] = None): # 无用 
+    async def serlize_reward(self, reward_list: List[InventoryInfo], target: Union[ItemType, None] = None, filter: Union[None, Callable[[ItemType],bool]] = None): # 无用
         rewards = {}
         for reward in reward_list or []:
             if target and (reward.type == target[0] and reward.id == target[1]) or filter and filter((reward.type, reward.id)) or not target and not filter:
@@ -1681,7 +1668,7 @@ class pcrclient(apiclient):
     async def unlock_quest_id(self, quest: int):
         return (
             (quest == 0) or
-            (quest in self.data.quest_dict and self.data.quest_dict[quest].clear_flg > 0) or 
+            (quest in self.data.quest_dict and self.data.quest_dict[quest].clear_flg > 0) or
             (quest in self.data.cleared_byway_quest_id_set) or
             (quest in db.tower_quest and self.data.tower_status and self.data.tower_status.cleared_floor_num >= db.tower_quest[quest].floor_num)
         )
@@ -1809,7 +1796,7 @@ class pcrclient(apiclient):
         req.tips_id_list = []
         await self.request(req)
         self.need_refresh = False
-    
+
     async def reset_dungeon(self):
         req = DungeonResetRequest()
         req.dungeon_area_id = self.data.dungeon_area_id
@@ -1933,7 +1920,7 @@ class pcrclient(apiclient):
 
     def _get_key(self, key, default=None):
         return self._keys.get(key, self._base_keys.get(key, default))
-    
+
     @property
     def stamina_recover_cnt(self) -> int:
         return self._get_key('stamina_recover_times', 0)
@@ -1958,18 +1945,3 @@ class pcrclient(apiclient):
 
     def set_cron_run(self):
         self._keys['cron_run'] = True
-        
-    async def labyrinth_top(self):
-        req = LabyrinthTopRequest()
-        return await self.request(req)
-
-    async def labyrinth_enter(self, guild_id: int, difficulty: int):
-        req = LabyrinthEnterRequest()
-        req.guild_id = guild_id
-        req.difficulty = difficulty
-        return await self.request(req)
-
-    async def labyrinth_retire(self, enter_id: int):
-        req = LabyrinthRetireRequest()
-        req.enter_id = enter_id
-        return await self.request(req)

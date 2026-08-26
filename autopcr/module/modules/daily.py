@@ -1,4 +1,3 @@
-
 import asyncio
 from typing import List, Set
 
@@ -30,7 +29,7 @@ class global_config(Module):
         if client.is_cron_run():
             self._log("执行定时任务")
 
-        stamina_check = [('sweep_recover_stamina_times_n4', 
+        stamina_check = [('sweep_recover_stamina_times_n4',
                           lambda: client.data.is_normal_quest_campaign() and client.data.get_normal_quest_campaign_times() >= 4, "n4及以上"),
                          ('sweep_recover_stamina_times_n3',
                           lambda: client.data.is_normal_quest_campaign() and client.data.get_normal_quest_campaign_times() == 3, "n3"),
@@ -112,7 +111,7 @@ class seasonpass_accept(Module):
         if not seasonpasses:
             raise SkipError("目前无进行中的女神祭")
         for seasonpass in seasonpasses: # it should be 1
-            seasonpass_id = seasonpass.season_id 
+            seasonpass_id = seasonpass.season_id
             resp = await client.season_ticket_new_index(seasonpass_id)
             if any(mission.mission_status == eMissionStatusType.EnableReceive for mission in resp.missions):
                 resp = await client.season_ticket_new_accept(seasonpass_id, 0)
@@ -147,18 +146,18 @@ class seasonpass_reward(Module):
         if not seasonpasses:
             raise SkipError("目前无女神祭庆典")
         for seasonpass in seasonpasses: # it len should be 1
-            seasonpass_id = seasonpass.season_id 
+            seasonpass_id = seasonpass.season_id
             resp = await client.season_ticket_new_index(seasonpass_id)
             VIP = resp.is_buy
             if VIP: self._log("拥有神秘请柬的骑士君")
             unreceive_reward = [self.to_key(reward) for reward in resp.received_rewards if reward != db.seasonpass_level_reward_full_sign(reward // 10, VIP)]
             rewards = []
             if unreceive_reward:
-                if receive_all: 
+                if receive_all:
                     resp = await client.season_ticket_new_reward(seasonpass_id, 0, 0)
                     rewards = resp.rewards
                 else:
-                    async def check_reward(reward: seasonpass_reward.Reward, full_reward: seasonpass_reward.Reward, reward_type: int, index: int) -> List[InventoryInfo]: 
+                    async def check_reward(reward: seasonpass_reward.Reward, full_reward: seasonpass_reward.Reward, reward_type: int, index: int) -> List[InventoryInfo]:
                         if full_reward.status[index] and \
                         not reward.status[index] and \
                         not db.is_stamina_type(reward_type):
@@ -166,22 +165,22 @@ class seasonpass_reward(Module):
                             return resp.rewards
                         else:
                             return []
-                        
+
 
                     for reward in unreceive_reward:
-                        rewards += await check_reward(reward, 
-                                           self.to_key(db.seasonpass_level_reward_full_sign(reward.level, VIP)), 
+                        rewards += await check_reward(reward,
+                                           self.to_key(db.seasonpass_level_reward_full_sign(reward.level, VIP)),
                                            db.seasonpass_level_reward[reward.level].free_reward_type,
                                            0)
-                        rewards += await check_reward(reward, 
-                                           self.to_key(db.seasonpass_level_reward_full_sign(reward.level, VIP)), 
+                        rewards += await check_reward(reward,
+                                           self.to_key(db.seasonpass_level_reward_full_sign(reward.level, VIP)),
                                            db.seasonpass_level_reward[reward.level].charge_reward_type_1,
                                            1)
-                        rewards += await check_reward(reward, 
-                                           self.to_key(db.seasonpass_level_reward_full_sign(reward.level, VIP)), 
+                        rewards += await check_reward(reward,
+                                           self.to_key(db.seasonpass_level_reward_full_sign(reward.level, VIP)),
                                            db.seasonpass_level_reward[reward.level].charge_reward_type_2,
                                            2)
-                        
+
             if rewards:
                 reward = await client.serialize_reward_summary(rewards)
                 self._log(f"领取了女神祭奖励，获得了:\n{reward}")
@@ -396,22 +395,21 @@ class user_info(Module):
         self._log(f"清日常时间：{now}")
         self._log(f"公会ID：{client.data.clan}")
 
-
-
 @description('仅进攻，不结算，会消耗次数')
 @name('完成每日jjc任务')
 @default(False)
 class jjc_daily(Module):
     async def do_task(self, client: pcrclient):
         if client.data.is_empty_deck(ePartyType.ARENA):
-            raise AbortError("未设置进攻队伍，请设置") # AUTO SET TODO
+            raise AbortError("未设置进攻队伍，请先设置")
 
         info = await client.get_arena_info()
         if info.arena_info.battle_number != info.arena_info.max_battle_number:
             raise SkipError("今日jjc任务已完成")
 
         for _ in range(3):
-            if info.search_opponent: break
+            if info.search_opponent:
+                break
             await asyncio.sleep(2)
             info = await client.get_arena_info()
 
@@ -423,24 +421,32 @@ class jjc_daily(Module):
         await client.arena_start(token, opponent.viewer_id, info.arena_info.battle_number, 1)
         await client.logout()
         await asyncio.sleep(2)
-        self._log(f"当前排名{info.arena_info.rank}，进攻第{opponent.rank}名的【{opponent.user_name}】")
+        self._log(
+            f"当前排名{info.arena_info.rank}，"
+            f"进攻第{opponent.rank}名的【{opponent.user_name}】"
+        )
+
 
 @description('仅进攻，不结算，会消耗次数')
 @name('完成每日pjjc任务')
 @default(False)
 class pjjc_daily(Module):
     async def do_task(self, client: pcrclient):
-        if client.data.is_empty_deck(ePartyType.GRAND_ARENA_1) or \
-        client.data.is_empty_deck(ePartyType.GRAND_ARENA_2) or \
-        client.data.is_empty_deck(ePartyType.GRAND_ARENA_3):
-            raise AbortError("未设置进攻队伍，请设置") # AUTO SET TODO
+        deck_types = (
+            ePartyType.GRAND_ARENA_1,
+            ePartyType.GRAND_ARENA_2,
+            ePartyType.GRAND_ARENA_3,
+        )
+        if any(client.data.is_empty_deck(deck_type) for deck_type in deck_types):
+            raise AbortError("未设置完整的进攻队伍，请先设置")
 
         info = await client.get_grand_arena_info()
         if info.grand_arena_info.battle_number != info.grand_arena_info.max_battle_number:
             raise SkipError("今日pjjc任务已完成")
 
         for _ in range(3):
-            if info.search_opponent: break
+            if info.search_opponent:
+                break
             await asyncio.sleep(2)
             info = await client.get_grand_arena_info()
 
@@ -452,4 +458,7 @@ class pjjc_daily(Module):
         await client.grand_arena_start(token, opponent.viewer_id, info.grand_arena_info.battle_number, 1)
         await client.logout()
         await asyncio.sleep(2)
-        self._log(f"当前排名{info.grand_arena_info.rank}，进攻第{opponent.rank}名的【{opponent.user_name}】")
+        self._log(
+            f"当前排名{info.grand_arena_info.rank}，"
+            f"进攻第{opponent.rank}名的【{opponent.user_name}】"
+        )

@@ -1,4 +1,4 @@
-import hashlib, base64  
+import hashlib, base64
 
 INT_MASK = 0xffffffff
 N_HASH = 29
@@ -52,7 +52,7 @@ def sign(text: str, nonce: str) -> str:
 
     res = [None for _ in range(N_HASH)]
 
-    step = n // N_HASH 
+    step = n // N_HASH
 
     table = TABLES[tableId]
 

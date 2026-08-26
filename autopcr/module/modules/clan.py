@@ -85,8 +85,8 @@ class clan_equip_request(Module):
         config_color: str = self.get_config('clan_equip_request_color')
         target_level = self.color_to_promotion[config_color]
 
-        consider_equip = [(equip_id, num) for (item_type, equip_id), num in demand.items() if 
-                          db.equip_data[equip_id].enable_donation and 
+        consider_equip = [(equip_id, num) for (item_type, equip_id), num in demand.items() if
+                          db.equip_data[equip_id].enable_donation and
                           db.equip_data[equip_id].require_level <= client.data.team_level and
                           (db.equip_data[equip_id].promotion_level == target_level or config_color == 'all')]
         consider_equip = sorted(consider_equip, key=lambda x: x[1], reverse=True)
@@ -97,6 +97,17 @@ class clan_equip_request(Module):
             self._log(f"请求【{db.get_equip_name(equip_id)}】装备，缺口数量为{num}")
         else:
             raise AbortError("没有可请求的装备")
+
+
+def _target_viewer_id(module: Module) -> int:
+    value = module.get_config("target_viewer_id")
+    try:
+        viewer_id = int(value)
+    except (TypeError, ValueError):
+        raise AbortError("玩家ID必须是数字")
+    if viewer_id <= 0:
+        raise AbortError("未指定目标玩家ID")
+    return viewer_id
 
 
 @description('查看当前公会成员列表')
@@ -110,10 +121,7 @@ class clan_member_list(Module):
             self._log("未获取到成员信息")
             return
 
-        members = sorted(
-                members,
-                key=lambda m: (-m.total_power, m.viewer_id)
-        )
+        members = sorted(members, key=lambda member: (-member.total_power, member.viewer_id))
         self._log(f"成员数量：{len(members)}")
         for idx, member in enumerate(members, 1):
             name = getattr(member, 'name', '未知')
@@ -139,16 +147,8 @@ class clan_member_list(Module):
 @default(False)
 class clan_invite_player(Module):
     async def do_task(self, client: pcrclient):
-        target_viewer_id = self.get_config('target_viewer_id')
-        if not target_viewer_id:
-            raise AbortError("未指定目标玩家ID")
-        
-        try:
-            target_viewer_id = int(target_viewer_id)
-        except ValueError:
-            raise AbortError("玩家ID必须是数字")
-        
-        await client.invite_to_clan(target_viewer_id,"爱你哦")
+        target_viewer_id = _target_viewer_id(self)
+        await client.invite_to_clan(target_viewer_id, "")
         self._log(f"已向玩家 {target_viewer_id} 发送公会邀请")
 
 
@@ -159,14 +159,6 @@ class clan_invite_player(Module):
 @default(False)
 class clan_kick_player(Module):
     async def do_task(self, client: pcrclient):
-        target_viewer_id = self.get_config('target_viewer_id')
-        if not target_viewer_id:
-            raise AbortError("未指定目标玩家ID")
-        
-        try:
-            target_viewer_id = int(target_viewer_id)
-        except ValueError:
-            raise AbortError("玩家ID必须是数字")
-        
+        target_viewer_id = _target_viewer_id(self)
         await client.remove_member(target_viewer_id)
-        self._log(f"已踢出 {target_viewer_id} ")
+        self._log(f"已踢出玩家 {target_viewer_id}")

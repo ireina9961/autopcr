@@ -1,5 +1,9 @@
 from typing import List, Set, Tuple
-import json, asyncio, time
+import asyncio
+import json
+import os
+import tempfile
+import time
 from os.path import join, exists
 from random import choice, sample, choices
 
@@ -9,7 +13,7 @@ from ..util.logger import instance as logger
 
 try:
     from hoshino.modules.priconne.arena.arena import curpath as CACHE_DIR
-except:
+except (ImportError, ModuleNotFoundError):
     from ..constants import CACHE_DIR
 
 RECENTTIME = 3600 * 24 * 5
@@ -29,8 +33,12 @@ class ArenaQuery:
             with open(self.timepath, 'w', encoding="utf-8") as fp:
                 fp.write("{}")
 
-        with open(self.timepath, 'r', encoding="utf-8") as fp:
-            self.buffer = json.load(fp)
+        try:
+            with open(self.timepath, 'r', encoding="utf-8") as fp:
+                self.buffer = json.load(fp)
+        except (OSError, json.JSONDecodeError):
+            logger.warning(f"invalid arena cache index, rebuilding: {self.timepath}")
+            self.buffer = {}
 
     _endpoint = 'https://api.pcrdfans.com/x/v1/search'
     _headers = {
@@ -67,15 +75,30 @@ class ArenaQuery:
     def _dumps(x):
         return json.dumps(x, ensure_ascii=False).replace(' ', '')
 
+    @staticmethod
+    def _write_json_atomic(path: str, value) -> None:
+        directory = os.path.dirname(path)
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=directory,
+            prefix=f".{os.path.basename(path)}.",
+            suffix=".tmp",
+            delete=False,
+        ) as fp:
+            json.dump(value, fp, ensure_ascii=False, indent=2)
+            fp.write("\n")
+            temp_path = fp.name
+        os.replace(temp_path, path)
+
     def save_buffer(self):
-        with open(self.timepath, 'w', encoding="utf-8") as fp:
-            json.dump(self.buffer, fp, ensure_ascii=False, indent=4)
+        self._write_json_atomic(self.timepath, self.buffer)
 
     def result_path(self, key: str) -> str:
-        return join(self.bufferpath, f'{key}.json') 
+        return join(self.bufferpath, f'{key}.json')
 
     def is_exist_result(self, key: str) -> bool:
-        return exists(self.result_path(key))  
+        return exists(self.result_path(key))
 
     def load_result(self, key: str) -> List[ArenaQueryResult]:
         with open(self.result_path(key), 'r', encoding="utf-8") as fp:
@@ -87,8 +110,10 @@ class ArenaQuery:
         self.buffer[key] = timestamp
         self.save_buffer()
 
-        with open(self.result_path(key), 'w', encoding="utf-8") as fp:
-            json.dump([json.loads(ret.json(by_alias=True)) for ret in result], fp, indent=4, ensure_ascii=False)
+        self._write_json_atomic(
+            self.result_path(key),
+            [json.loads(ret.json(by_alias=True)) for ret in result],
+        )
 
     def is_recent_time(self, timestamp: int) -> bool:
         return int(time.time()) - timestamp < RECENTTIME
@@ -133,12 +158,9 @@ class ArenaQuery:
                 if res.code:
                     raise ValueError(f'服务器报错：返回值{res.code}')
                 return res.data.result if res.data else []
-            except aiorequests.requests.ConnectionError as e:
+            except (aiorequests.requests.ConnectionError, aiorequests.requests.ReadTimeout) as exc:
+                logger.warning(f"arena query failed: {exc}")
                 return []
-            except aiorequests.requests.ReadTimeout as e:
-                return []
-            except Exception as e:
-                raise e
 
     def is_approximate_team(self, lunits: List[int], lregion: ArenaRegion, units: List[int], region: ArenaRegion) -> bool:
         if lregion != region and lregion != ArenaRegion.ALL:
@@ -169,12 +191,12 @@ class ArenaQuery:
         positive_rate_ci = proportion_confint(up_vote, total_vote)
         negative_rate_ci = proportion_confint(down_vote, total_vote)
         composite_score = mean(positive_rate_ci) - mean(negative_rate_ci)
-        return composite_score 
+        return composite_score
 
     async def get_other_region_result(self, defen: List[int], region: ArenaRegion) -> List[ArenaQueryResult]:
         query_seq = {
-            ArenaRegion.ALL: [ArenaRegion.CN, ArenaRegion.JP, ArenaRegion.TW],  
-            ArenaRegion.CN: [ArenaRegion.ALL, ArenaRegion.TW, ArenaRegion.JP], 
+            ArenaRegion.ALL: [ArenaRegion.CN, ArenaRegion.JP, ArenaRegion.TW],
+            ArenaRegion.CN: [ArenaRegion.ALL, ArenaRegion.TW, ArenaRegion.JP],
             ArenaRegion.TW: [ArenaRegion.ALL, ArenaRegion.CN, ArenaRegion.JP],
             ArenaRegion.JP: [ArenaRegion.ALL, ArenaRegion.TW, ArenaRegion.CN]
         }
@@ -250,9 +272,9 @@ class ArenaQuery:
         from itertools import product
         cartesian = product(*attacks)
         candidates: List[List[ArenaQueryResult]] = list(
-                map(lambda x: list(x), 
-                    filter(lambda x: len(set(unit.id for attack in x for unit in attack.atk)) == 
-                           sum(1 for attack in x for unit in attack.atk), 
+                map(lambda x: list(x),
+                    filter(lambda x: len(set(unit.id for attack in x for unit in attack.atk)) ==
+                           sum(1 for attack in x for unit in attack.atk),
                            cartesian))) # only allow one placeholder
 
         candidates = [team if not self.have_placeholder(team) else self.replace_placeholder(available_unit, team) for team in candidates]

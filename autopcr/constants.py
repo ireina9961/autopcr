@@ -31,7 +31,7 @@ ROOT_DIR = os.path.join(os.path.dirname(__file__), '..')
 CACHE_DIR = os.path.join(ROOT_DIR, './cache/')
 RESULT_DIR = os.path.join(ROOT_DIR, './result/')
 DATA_DIR = os.path.join(ROOT_DIR, './data/')
-CONFIG_PATH = os.path.join(CACHE_DIR, './http_server/') 
+CONFIG_PATH = os.path.join(CACHE_DIR, './http_server/')
 OLD_CONFIG_PATH = os.path.join(ROOT_DIR, 'autopcr/http_server/config')
 CLAN_BATTLE_FORBID_PATH = os.path.join(CONFIG_PATH, 'clan_battle_forbidden.txt')
 
@@ -43,6 +43,16 @@ UUID_NAMESPACE = uuid.UUID("83a3e9e1-2690-4ff2-88bb-075ba6a6743c")
 # Public access address for QQ bot messages (e.g., "example.com" or "1.2.3.4:13200")
 PUBLIC_ADDRESS = os.getenv("AUTOPCR_PUBLIC_ADDRESS", "")
 USE_HTTPS = strtobool(os.getenv("AUTOPCR_USE_HTTPS", "false"))
+
+# Optional integrations used by the Hoshino deployment. Keeping these paths in
+# environment variables makes the repository portable and keeps local imports
+# from depending on another checkout under /opt.
+AUTOBOX_CONFIG_PATH = os.getenv("AUTOPCR_AUTOBOX_CONFIG_PATH", "")
+CHARA_NAME_OVERRIDE_PATH = os.getenv("AUTOPCR_CHARA_NAME_PATH", "")
+LABYRINTH_REROLL_INTERVAL_SECONDS = max(
+    0.0,
+    float(os.getenv("AUTOPCR_LABYRINTH_REROLL_INTERVAL", "0.5")),
+)
 
 # Headers
 DEFAULT_HEADERS = {

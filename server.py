@@ -3,13 +3,16 @@ from typing import Any, Callable, Coroutine, Dict, List, Tuple, Union
 from pathlib import Path
 import re
 
+from .autopcr.util import aiorequests
 from .autopcr.module.accountmgr import BATCHINFO, AccountBatch, TaskResultInfo
 from .autopcr.module.modulebase import eResultStatus
 from .autopcr.util.draw_table import outp_b64
 from .autopcr.http_server.httpserver import HttpServer
 from .autopcr.db.database import db
+from .autopcr.util.unit_recognizer import instance as unit_recognizer
 from .autopcr.module.accountmgr import Account, AccountManager, instance as usermgr
 from .autopcr.db.dbstart import db_start
+from .autopcr.core.clientpool import instance as clientpool
 from .autopcr.util.draw import instance as drawer
 from .autopcr.util.excel_export import export_excel
 import asyncio, datetime
@@ -30,9 +33,10 @@ import secrets
 from .autopcr.util.pcr_data import get_id_from_name
 import traceback
 from .autopcr.util.logger import instance as logger
+from .autopcr.constants import PUBLIC_ADDRESS as ENV_PUBLIC_ADDRESS, USE_HTTPS
 
-address = None  # 填你的公网IP或域名，不填则会自动尝试获取
-useHttps = False
+address = ENV_PUBLIC_ADDRESS or None  # 环境变量AUTOPCR_PUBLIC_ADDRESS，不填则会自动尝试获取
+useHttps = bool(USE_HTTPS)
 
 server = HttpServer(qq_mod=True)
 app = nonebot.get_bot().server_app
@@ -53,7 +57,6 @@ sv_help = f"""
 - {prefix}日常报告 [0|1|2|3] 最近四次清日常报告
 - {prefix}定时日志 查看定时运行状态
 - {prefix}查角色 [昵称] 查看角色练度
-- {prefix}查缺称号 查看缺少的称号
 - {prefix}查缺角色 查看缺少的限定常驻角色
 - {prefix}查ex装备 [会战] 查看ex装备库存
 - {prefix}查探险编队 根据记忆碎片角色编队战力相当的队伍
@@ -64,23 +67,25 @@ sv_help = f"""
 - {prefix}查装备 [<rank>] [fav] 查询缺口装备，rank为数字，只查询>=rank的角色缺口装备，fav表示只查询favorite的角色
 - {prefix}查深域 查询深域通关情况
 - {prefix}查公会深域 查询公会深域通关情况
+- {prefix}黎明界开局 <美食殿堂|破晓之星|咲恋救济院|王宫骑士团|拉比林斯> 可以只打部分字
 - {prefix}刷图推荐 [<rank>] [fav] 查询缺口装备的刷图推荐，格式同上
 - {prefix}公会支援 查询公会支援角色配置
 - {prefix}卡池 查看当前卡池
 - {prefix}编队 1 1 春妈 蝶妈 狗妈 水妈 礼妈 便捷设置编队
-- {prefix}一键编队 1 1 队名1 星级角色1 星级角色2 ... 星级角色5 队名2 星级角色1 星级角色2 END 设置多队编队，队伍不足5人以END结尾
+- {prefix}一键编队 1 1 [拉满] 队名1 星级角色1 星级角色2 ... 星级角色5 队名2 星级角色1 星级角色2 设置多队编队，一行一个队伍
 - {prefix}半月刊 查看半月刊
 - {prefix}识图 [图片] 识别图片中的角色，返回一键编队文本
 - {prefix}免费十连 <卡池id> 卡池id来自【{prefix}卡池】
 - {prefix}来发十连 <卡池id> [抽到出] [单抽券|单抽] [编号小优先] [开抽] 赛博抽卡，谨慎使用。卡池id来自【{prefix}卡池】，[抽到出]表示抽到出货或达天井，默认十连，[单抽券]表示仅用厕纸，[单抽]表示宝石单抽，[标号小优先]指智能pickup时优先选择编号小的角色，[开抽]表示确认抽卡。已有up也可再次触发。
-- {prefix}jjc回刺 同pjjc回刺
-- {prefix}jjc透视 同pjjc透视
-- {prefix}pjjc换防
-- {prefix}pjjc进攻
-- {prefix}好友相关
-- {prefix}拉人 <uid> 向指定玩家发送公会邀请
-- {prefix}踢人 <uid> 快速踢出公会
+- {prefix}好友相关 查看好友管理指令
 - {prefix}公会成员 查看公会成员列表
+- {prefix}拉人 <uid> 邀请玩家加入公会
+- {prefix}踢人 <uid> 将玩家移出公会
+- {prefix}jjc回刺 [排名] [作业序号] 查询并设置竞技场进攻队伍
+- {prefix}pjjc回刺 [排名] [作业序号] 查询并设置公主竞技场进攻队伍
+- {prefix}jjc透视 [flush] 查看前51名玩家
+- {prefix}pjjc透视 [flush] 查看前51名玩家
+- {prefix}pjjc换攻|pjjc换防 随机错排三队
 """.strip()
 
 if address is None:
@@ -88,7 +93,7 @@ if address is None:
         from hoshino.config import PUBLIC_ADDRESS
 
         address = PUBLIC_ADDRESS
-    except:
+    except (ImportError, AttributeError):
         pass
 
 if address is None:
@@ -96,13 +101,13 @@ if address is None:
         import socket
 
         address = socket.gethostbyname(socket.gethostname())
-    except:
+    except OSError:
         pass
 
 if address is None:
     address = "127.0.0.1"
 
-address = ("https://" if useHttps else "http://") + "124.223.200.109:13200" + "/daily/"
+address = ("https://" if useHttps else "http://") + address + "/daily/"
 
 validate = ""
 
@@ -130,6 +135,7 @@ class BotEvent:
     async def group_id(self) -> str: ...
     async def send_qq(self) -> str: ...
     async def message(self) -> List[str]: ...
+    async def message_raw(self) -> str: ...
     async def image(self) -> List[str]: ...
     async def is_admin(self) -> bool: ...
     async def is_super_admin(self) -> bool: ...
@@ -145,12 +151,15 @@ class HoshinoEvent(BotEvent):
 
         self.at_sb = []
         self._message = []
+        self._raw_message = ""
         self._image = []
         for m in ev.message:
             if m.type == 'at' and m.data['qq'] != 'all':
                 self.at_sb.append(str(m.data['qq']))
             elif m.type == 'text':
-                self._message += m.data['text'].split()
+                text = m.data['text']
+                self._raw_message += text
+                self._message += text.split()
             elif m.type == 'image':
                 self._image.append(m.data['url'])
 
@@ -171,6 +180,9 @@ class HoshinoEvent(BotEvent):
 
     async def message(self):
         return self._message
+
+    async def message_raw(self):
+        return self._raw_message
 
     async def image(self):
         return self._image
@@ -225,7 +237,7 @@ async def is_valid_qq(qq: str):
     qq = str(qq)
     enable_groups = await sv.get_enable_groups()
     bot = nonebot.get_bot()
-    
+
     if qq.startswith("g"):
         gid = qq.lstrip('g')
         return gid.isdigit() and int(gid) in enable_groups.keys()
@@ -256,7 +268,7 @@ async def get_folder_id(botev: BotEvent, folder_name: str) -> Union[str, None]:
         gid = await botev.group_id()
         resp = await botev.call_action('get_group_root_files', group_id=gid)
         folders = resp.get('folders', [])
-        
+
         for folder in folders:
             if folder.get('folder_name') == folder_name:
                 folder_id = folder.get('folder_id')
@@ -337,7 +349,7 @@ def wrap_accountmgr(func):
             await botev.finish("只有管理员可以操作他人账号")
 
         if target_qq not in usermgr.qids():
-            await botev.finish(f"未找到{target_qq}的账号，请发送【{prefix}配置日常】进行配置，如果无法注册，请尝试使用【autopcr注册】进行注册")
+            await botev.finish(f"未找到{target_qq}的账号，请发送【{prefix}配置日常】进行配置")
 
         async with usermgr.load(target_qq, readonly=True) as accmgr:
             await func(botev = botev, accmgr = accmgr, *args, **kwargs)
@@ -453,23 +465,24 @@ def require_super_admin(func):
     wrapper.__name__ = func.__name__
     return wrapper
 
-@sv.on_fullmatch(["帮助自动清日常", f"{prefix}帮助","自动清日常"])
+@sv.on_fullmatch(["帮助自动清日常", f"{prefix}帮助", "自动清日常"])
 @wrap_hoshino_event
 async def bangzhu_text(botev: BotEvent):
     msg = outp_b64(await drawer.draw_msgs(sv_help.split("\n")))
     await botev.finish(msg)
 
+
 @sv.on_fullmatch(f"{prefix}好友相关")
 @wrap_hoshino_event
 async def friend_help(botev: BotEvent):
-    _help = f'''
-- {prefix}添加好友 <uid> 向指定玩家发送好友请求
-- {prefix}好友列表 查看好友列表
-- {prefix}删除好友 <uid> 删除指定好友
-- {prefix}申请列表 查看待处理的好友申请列表
-'''.strip()
-    msg = outp_b64(await drawer.draw_msgs(_help.split("\n")))
-    await botev.finish(msg)
+    help_text = f"""
+- {prefix}添加好友 <uid>
+- {prefix}同意好友 <uid>
+- {prefix}删除好友 <uid>
+- {prefix}好友列表
+- {prefix}申请列表
+""".strip()
+    await botev.finish(outp_b64(await drawer.draw_msgs(help_text.split("\n"))))
 
 @sv.on_fullmatch(f"{prefix}清日常所有")
 @wrap_hoshino_event
@@ -556,6 +569,16 @@ async def find_ghost(botev: BotEvent):
     if not msg:
         msg.append("未找到内鬼")
     await botev.finish(" ".join(msg))
+
+@sv.on_fullmatch(f"{prefix}运行状态")
+@wrap_hoshino_event
+async def service_status(botev: BotEvent):
+    sema, farm_sema = clientpool.sema_status()
+    ret = []
+    for i, (running, waiting, max_count) in enumerate([sema, farm_sema]):
+        msg = f"运行状态{i}：{running}/{max_count}正在运行，{waiting}等待中"
+        ret.append(msg)
+    await botev.send('\n'.join(ret))
 
 @sv.on_fullmatch(f"{prefix}清内鬼")
 @wrap_hoshino_event
@@ -723,7 +746,7 @@ async def config_clear_daily(botev: BotEvent):
 @wrap_account
 @wrap_config
 @check_final_args_be_empty
-async def tool_used(botev: BotEvent, tool: ToolInfo, config: Dict[str, str], acc: Union[AccountBatch, Account], export: bool, text:bool = False):
+async def tool_used(botev: BotEvent, tool: ToolInfo, config: Dict[str, str], acc: Union[AccountBatch, Account], export: bool):
     alias = escape(acc.alias)
     try:
         loop = asyncio.get_event_loop()
@@ -744,14 +767,10 @@ async def tool_used(botev: BotEvent, tool: ToolInfo, config: Dict[str, str], acc
             timestamp = db.format_time_safe(datetime.datetime.now())
             await upload_excel(botev, data, f"{tool.name}_{alias}_{timestamp}.xlsx", 'autopcr')
         else:
-            if text:  
-                msg = f"{alias}\n{resp.log}"  
-                await botev.send(msg)  
-            else:  
-                img = await drawer.draw_task_result(resp)  
-                msg = f"{alias}"  
-                msg += outp_b64(img)  
-                await botev.send(msg) 
+            img = await drawer.draw_task_result(resp)
+            msg = f"{alias}"
+            msg += outp_b64(img)
+            await botev.send(msg)
     except Exception as e:
         logger.exception(e)
         await botev.send(f'{alias}: {e}')
@@ -768,12 +787,117 @@ def is_args_exist(msg: List[str], key: str):
         return True
     return False
 
+def recover_text_by_tokens(raw_text: str, tokens: List[str]) -> str:
+    if not tokens:
+        return ""
+    pattern = r"\s+".join(re.escape(token) for token in tokens)
+    match = re.search(pattern, raw_text, flags=re.S)
+    if match:
+        return raw_text[match.start():match.end()]
+    return " ".join(tokens)
+
+
+async def parse_target_viewer_id(botev: BotEvent) -> Dict[str, int]:
+    msg = await botev.message()
+    try:
+        viewer_id = int(msg.pop(0))
+    except (IndexError, TypeError, ValueError):
+        await botev.finish("请输入有效的玩家ID")
+        return {}
+    if viewer_id <= 0:
+        await botev.finish("请输入有效的玩家ID")
+        return {}
+    return {"target_viewer_id": viewer_id}
+
+
+def pop_int_arg(msg: List[str], default: int) -> int:
+    if not msg:
+        return default
+    try:
+        return int(msg.pop(0))
+    except (TypeError, ValueError):
+        return default
+
 @register_tool("公会支援", 'get_clan_support_unit')
 async def clan_support(botev: BotEvent):
     return {}
 
+
 @register_tool("公会成员", "clan_member_list")
 async def clan_member_list_tool(botev: BotEvent):
+    return {}
+
+
+@register_tool("拉人", "clan_invite_player")
+async def clan_invite_player_tool(botev: BotEvent):
+    return await parse_target_viewer_id(botev)
+
+
+@register_tool("踢人", "clan_kick_player")
+async def clan_kick_player_tool(botev: BotEvent):
+    return await parse_target_viewer_id(botev)
+
+
+@register_tool("同意好友", "accept_friend")
+async def accept_friend_tool(botev: BotEvent):
+    return await parse_target_viewer_id(botev)
+
+
+@register_tool("添加好友", "request_friend")
+async def request_friend_tool(botev: BotEvent):
+    return await parse_target_viewer_id(botev)
+
+
+@register_tool("好友列表", "friend_list")
+async def friend_list_tool(botev: BotEvent):
+    return {}
+
+
+@register_tool("删除好友", "remove_friend")
+async def remove_friend_tool(botev: BotEvent):
+    return await parse_target_viewer_id(botev)
+
+
+@register_tool("申请列表", "pending_list")
+async def pending_list_tool(botev: BotEvent):
+    return {}
+
+
+async def parse_arena_back_args(botev: BotEvent, prefix_key: str) -> Dict[str, int]:
+    msg = await botev.message()
+    return {
+        f"opponent_{prefix_key}_rank": pop_int_arg(msg, -1),
+        f"opponent_{prefix_key}_attack_team_id": pop_int_arg(msg, 1),
+    }
+
+
+@register_tool("jjc回刺", "jjc_back")
+async def jjc_back_tool(botev: BotEvent):
+    return await parse_arena_back_args(botev, "jjc")
+
+
+@register_tool("pjjc回刺", "pjjc_back")
+async def pjjc_back_tool(botev: BotEvent):
+    return await parse_arena_back_args(botev, "pjjc")
+
+
+@register_tool("jjc透视", "jjc_info")
+async def jjc_info_tool(botev: BotEvent):
+    return {"jjc_info_cache": not is_args_exist(await botev.message(), "flush")}
+
+
+@register_tool("pjjc透视", "pjjc_info")
+async def pjjc_info_tool(botev: BotEvent):
+    return {"pjjc_info_cache": not is_args_exist(await botev.message(), "flush")}
+
+
+@register_tool("pjjc换防", "pjjc_def_shuffle_team")
+async def pjjc_def_shuffle_team_tool(botev: BotEvent):
+    return {}
+
+
+@register_tool("pjjc换攻", "pjjc_atk_shuffle_team")
+async def pjjc_atk_shuffle_team_tool(botev: BotEvent):
     return {}
 
 @register_tool("查心碎", "get_need_xinsui")
@@ -784,13 +908,10 @@ async def find_xinsui(botev: BotEvent):
 async def find_memory(botev: BotEvent):
     memory_demand_consider_unit = '所有'
     msg = await botev.message()
-    try:
-        if is_args_exist(msg, '可刷取'):
-            memory_demand_consider_unit = '地图可刷取'
-        elif is_args_exist(msg, '大师币'):
-            memory_demand_consider_unit = '大师币商店'
-    except:
-        pass
+    if is_args_exist(msg, '可刷取'):
+        memory_demand_consider_unit = '地图可刷取'
+    elif is_args_exist(msg, '大师币'):
+        memory_demand_consider_unit = '大师币商店'
     config = {
         "memory_demand_consider_unit": memory_demand_consider_unit,
     }
@@ -798,6 +919,10 @@ async def find_memory(botev: BotEvent):
 
 @register_tool("查纯净碎片", "get_need_pure_memory")
 async def find_pure_memory(botev: BotEvent):
+    return {}
+
+@register_tool("查sp碎片", "get_need_sp_memory")
+async def find_sp_memory(botev: BotEvent):
     return {}
 
 @register_tool(f"来发十连", "gacha_start")
@@ -810,36 +935,14 @@ async def shilian(botev: BotEvent):
     single = False
     small_first = False
     msg = await botev.message()
-    try:
-        pool_id = msg[0]
-        del msg[0]
-    except:
-        pass
+    if msg:
+        pool_id = msg.pop(0)
 
-    try:
-        cc_until_get = is_args_exist(msg, '抽到出')
-    except:
-        pass
-
-    try:
-        really_do = is_args_exist(msg, '开抽')
-    except:
-        pass
-
-    try:
-        single_ticket = is_args_exist(msg, '单抽券')
-    except:
-        pass
-
-    try:
-        single = is_args_exist(msg, '单抽')
-    except:
-        pass
-
-    try:
-        small_first = is_args_exist(msg, '编号小优先')
-    except:
-        pass
+    cc_until_get = is_args_exist(msg, '抽到出')
+    really_do = is_args_exist(msg, '开抽')
+    single_ticket = is_args_exist(msg, '单抽券')
+    single = is_args_exist(msg, '单抽')
+    small_first = is_args_exist(msg, '编号小优先')
 
     current_gacha = {gacha.split(':')[0]: gacha for gacha in db.get_cur_gacha()}
 
@@ -877,19 +980,9 @@ async def shilian(botev: BotEvent):
 
 @register_tool(f"查装备", "get_need_equip")
 async def find_equip(botev: BotEvent):
-    like_unit_only = False
-    start_rank = None
     msg = await botev.message()
-    try:
-        like_unit_only = is_args_exist(msg, 'fav')
-    except:
-        pass
-
-    try:
-        start_rank = int(msg[0])
-        del msg[0]
-    except:
-        pass
+    like_unit_only = is_args_exist(msg, 'fav')
+    start_rank = pop_int_arg(msg, None)
 
 
     config = {
@@ -900,18 +993,9 @@ async def find_equip(botev: BotEvent):
 
 @register_tool(f"刷图推荐", "get_normal_quest_recommand")
 async def quest_recommand(botev: BotEvent):
-    like_unit_only = False
-    start_rank = None
     msg = await botev.message()
-    try:
-        like_unit_only = is_args_exist(msg, 'fav')
-    except:
-        pass
-    try:
-        start_rank = int(msg[0])
-        del msg[0]
-    except:
-        pass
+    like_unit_only = is_args_exist(msg, 'fav')
+    start_rank = pop_int_arg(msg, None)
 
     config = {
         "start_rank": start_rank,
@@ -931,22 +1015,13 @@ async def find_missing_emblem(botev: BotEvent):
 @register_tool("查角色", "search_unit")
 async def search_box(botev: BotEvent):
     msg = await botev.message()
-    unit = None
-    unit_name = ""
-    try:
-        unit_name = msg[0]
-        unit = get_id_from_name(unit_name)
-        del msg[0]
-    except:
-        pass
-
-    if unit:
-        unit = unit * 100 + 1;
-        return {
-            "search_unit_id": unit
-        }
-    else:
+    if not msg:
+        await botev.finish("请输入角色昵称")
+    unit_name = msg.pop(0)
+    unit_id = get_id_from_name(unit_name)
+    if unit_id is None:
         await botev.finish(f"未知昵称{unit_name}")
+    return {"search_unit_id": unit_id * 100 + 1}
 
 @register_tool("刷新box", "refresh_box")
 async def refresh_box(botev: BotEvent):
@@ -958,12 +1033,8 @@ async def find_travel_team_view(botev: BotEvent):
 
 @register_tool("查ex装备", "ex_equip_info")
 async def ex_equip_info(botev: BotEvent):
-    ex_equip_info_cb_only = False
     msg = await botev.message()
-    try:
-        ex_equip_info_cb_only = is_args_exist(msg, '会战')
-    except:
-        pass
+    ex_equip_info_cb_only = is_args_exist(msg, '会战')
     config = {
         "ex_equip_info_cb_only": ex_equip_info_cb_only
     }
@@ -971,12 +1042,8 @@ async def ex_equip_info(botev: BotEvent):
 
 @register_tool("查兑换角色碎片", "redeem_unit_swap")
 async def redeem_unit_swap(botev: BotEvent):
-    really_do = False
     msg = await botev.message()
-    try:
-        really_do = is_args_exist(msg, '开换')
-    except:
-        pass
+    really_do = is_args_exist(msg, '开换')
     config = {
         "redeem_unit_swap_do": really_do
     }
@@ -990,6 +1057,22 @@ async def half_schedule(botev: BotEvent):
 # async def return_jewel(botev: BotEvent):
     # return {}
 
+@register_tool("黎明界开局", "labyrinth_start_reroll")
+async def labyrinth_start_reroll(botev: BotEvent):
+    guild_id = 0
+    msg = await botev.message()
+    if msg:
+        for guild in db.labyrinth_enter_guild.values():
+            if msg[0] in guild.guild_name.replace(r"\n", ""):
+                guild_id = guild.guild_id
+                del msg[0]
+                break
+    if guild_id == 0:
+        await botev.finish(f"未找到公会，请输入包含以下公会名字：" + "\n".join([guild.guild_name.replace(r"\n", "") for guild in db.labyrinth_enter_guild.values()]))
+    return {
+            "labyrinth_reroll_guild_id": guild_id,
+    }
+
 @register_tool("查深域", "find_talent_quest")
 async def find_talent_quest(botev: BotEvent):
     return {}
@@ -1001,11 +1084,7 @@ async def find_clan_talent_quest(botev: BotEvent):
 @register_tool("查box", "get_box_table")
 async def get_box_table(botev: BotEvent):
     msg = await botev.message()
-    box_all_unit = False
-    try:
-        box_all_unit = is_args_exist(msg, '所有')
-    except:
-        pass
+    box_all_unit = is_args_exist(msg, '所有')
 
     known_units = []
     unknown_units = []
@@ -1031,12 +1110,7 @@ async def get_box_table(botev: BotEvent):
 @register_tool("免费十连", "free_gacha")
 async def free_gacha(botev: BotEvent):
     msg = await botev.message()
-    gacha_id = 0
-    try:
-        gacha_id = int(msg[0])
-        del msg[0]
-    except:
-        pass
+    gacha_id = pop_int_arg(msg, 0)
     config = {
         "free_gacha_select_ids": [gacha_id],
         "today_end_gacha_no_do": False,
@@ -1045,85 +1119,56 @@ async def free_gacha(botev: BotEvent):
 
 
 @register_tool("编队", "set_my_party")
-async def set_my_party(botev: BotEvent):
+async def set_my_party_single(botev: BotEvent):
     msg = await botev.message()
-    party_start_num = 1
-    tab_start_num = 1
-    set_my_party_text = "自定义编队\n"
-    try:
-        tab_start_num = int(msg[0])
-        del msg[0]
-    except:
-        pass
-    try:
-        party_start_num = int(msg[0])
-        del msg[0]
-    except:
-        pass
-    units = []
+    tab_start_num = pop_int_arg(msg, 1)
+    party_start_num = pop_int_arg(msg, 1)
+
+    if not 1 <= tab_start_num <= 6:
+        await botev.finish("面板编号必须在1到6之间")
+    if not 1 <= party_start_num <= 20:
+        await botev.finish("队伍编号必须在1到20之间")
+    if len(msg) != 5:
+        await botev.finish("请提供恰好5个角色昵称")
+
+    unit_ids = []
     unknown_units = []
-    for _ in range(5):
-        try:
-            unit_name = msg[0]
-            unit = get_id_from_name(unit_name)
-            if unit:
-                units.append(unit)
-            else:
-                unknown_units.append(unit_name)
-            del msg[0]
-        except:
-            pass
+    for unit_name in msg:
+        unit_id = get_id_from_name(unit_name)
+        if unit_id is None:
+            unknown_units.append(unit_name)
+        else:
+            unit_ids.append(unit_id * 100 + 1)
     if unknown_units:
-        await botev.finish(f"未知昵称{', '.join(unknown_units)}")
-    if not units:
-        await botev.finish("未指定任何角色")
-    if len(units) < 5:
-        await botev.finish("需要5个角色")
-    set_my_party_text += "\n".join(f"{unit * 100 + 1}\t{db.get_unit_name(unit*100+1)}\t1\t{6 if unit*100+1 in db.unit_to_pure_memory else 5}" for unit in units)
-    config = {
+        await botev.finish(f"未知昵称：{', '.join(unknown_units)}")
+
+    team_text = "自定义编队\n" + "\n".join(
+        f"{unit_id}\t{db.get_unit_name(unit_id)}\t1\t"
+        f"{6 if unit_id in db.unit_to_pure_memory else 5}"
+        for unit_id in unit_ids
+    )
+    msg.clear()
+    return {
         "tab_start_num": tab_start_num,
         "party_start_num": party_start_num,
-        "set_my_party_text": set_my_party_text,
+        "set_my_party_text": team_text,
     }
-    return config
 
-def is_args_exist(msg: List[str], key: str):
-    if key in msg:
-        msg.remove(key)
-        return True
-    return False
-
-def recover_text_by_tokens(raw_text: str, tokens: List[str]) -> str:
-    if not tokens:
-        return ""
-    pattern = r"\s+".join(re.escape(token) for token in tokens)
-    match = re.search(pattern, raw_text, flags=re.S)
-    if match:
-        return raw_text[match.start():match.end()]
-    return " ".join(tokens)
 
 @register_tool("一键编队", "set_my_party2")
 async def set_my_party_multi(botev: BotEvent):
-    raw_msg = botev.ev.raw_message
+    raw_msg = await botev.message_raw()
     msg = await botev.message()
-    party_start_num = 1
-    tab_start_num = 1
-    try:
-        tab_start_num = int(msg[0])
-        del msg[0]
-    except:
-        pass
-    try:
-        party_start_num = int(msg[0])
-        del msg[0]
-    except:
-        pass
+    tab_start_num = pop_int_arg(msg, 1)
+    party_start_num = pop_int_arg(msg, 1)
+    is_to_max = is_args_exist(msg, '拉满')
 
     teams_text = recover_text_by_tokens(raw_msg, msg)
     config = {
         "tab_start_num2": tab_start_num,
         "party_start_num2": party_start_num,
         "set_my_party_text2": teams_text,
+        "set_my_party2_to_max": is_to_max,
     }
     del msg[:]
     return config
@@ -1132,188 +1177,35 @@ async def set_my_party_multi(botev: BotEvent):
 # async def get_library_import(botev: BotEvent):
     # return {}
 
+async def get_pic(address: str):
+    return await (await aiorequests.get(address, timeout=6)).content
 
-@register_tool("jjc回刺", "jjc_back")
-async def jjc_back(botev: BotEvent):
-    msg = await botev.message()
-    opponent_jjc_rank = -1
-    opponent_jjc_attack_team_id = 1
-    try:
-        opponent_jjc_rank = int(msg[0])
-        del msg[0]
-    except:
-        pass
-    try:
-        opponent_jjc_attack_team_id = int(msg[0])
-        del msg[0]
-    except:
-        pass
-    config = {
-        "opponent_jjc_rank": opponent_jjc_rank,
-        "opponent_jjc_attack_team_id": opponent_jjc_attack_team_id,
-    }
-    return config
+@sv.on_prefix(f"{prefix}识图")
+@wrap_hoshino_event
+async def ocr_team(botev: BotEvent):
+    img_urls = await botev.image()
+    if not img_urls:
+        await botev.finish("未识别到图片!")
 
-@register_tool("pjjc回刺", "pjjc_back")
-async def pjjc_back(botev: BotEvent):
-    msg = await botev.message()
-    opponent_pjjc_rank = -1
-    opponent_pjjc_attack_team_id = 1
-    try:
-        opponent_pjjc_rank = int(msg[0])
-        del msg[0]
-    except:
-        pass
-    try:
-        opponent_pjjc_attack_team_id = int(msg[0])
-        del msg[0]
-    except:
-        pass
-    config = {
-        "opponent_pjjc_rank": opponent_pjjc_rank,
-        "opponent_pjjc_attack_team_id": opponent_pjjc_attack_team_id,
-    }
-    return config
+    result = []
+    for id, img_url in enumerate(img_urls):
+        try:
+            image = Image.open(BytesIO(await get_pic(img_url)))
+        except Exception as e:
+            await botev.send(f"图片{id+1}下载失败: {e}")
+            continue
+        box, s = await unit_recognizer.recognize(image)
+        await botev.send(f"图片{id+1}识别结果: {s}")
+        if not box:
+            await botev.send(f"图片{id+1}未识别到任何队伍！")
+            continue
+        result += box
 
-@register_tool("jjc透视", "jjc_info")
-async def jjc_info(botev: BotEvent):
-    use_cache = True
-    msg = await botev.message()
-    try:
-        use_cache = not is_args_exist(msg, 'flush')
-    except:
-        pass
-    config = {
-        "jjc_info_cache": use_cache,
-    }
-    return config
+    if not result:
+        await botev.finish("未识别到任何队伍！")
 
-@register_tool("pjjc透视", "pjjc_info")
-async def pjjc_info(botev: BotEvent):
-    use_cache = True
-    msg = await botev.message()
-    try:
-        use_cache = not is_args_exist(msg, 'flush')
-    except:
-        pass
-    config = {
-        "pjjc_info_cache": use_cache,
-    }
-    return config
-
-@register_tool("pjjc换防", "pjjc_def_shuffle_team")
-async def pjjc_def_shuffle_team(botev: BotEvent):
-    return {}
-
-@register_tool("pjjc换攻", "pjjc_atk_shuffle_team")
-async def pjjc_atk_shuffle_team(botev: BotEvent):
-    return {}
-
-
-
-@register_tool("同意好友", "accept_friend")  
-async def accept_friend(botev: BotEvent):  
-    msg = await botev.message()  
-    target_viewer_id = 0  
-    try:  
-        target_viewer_id = int(msg[0])  
-        del msg[0]  
-    except:  
-        await botev.finish("请输入目标玩家ID")
-      
-    config = {  
-        "target_viewer_id": target_viewer_id,  
-    }  
-    return config
-
-  
-@register_tool("添加好友", "request_friend")  
-async def request_friend(botev: BotEvent):  
-    msg = await botev.message()  
-      
-    target_viewer_id = 0  
-    try:  
-        target_viewer_id = int(msg[0])  
-        del msg[0]  
-    except Exception as e:  
-        await botev.finish("请输入目标玩家ID")  
-      
-    config = {  
-        "target_viewer_id": target_viewer_id,  
-    }  
-    return config
-
-@register_tool("好友列表", "friend_list")  
-async def friend_list(botev: BotEvent):  
-    return {}  
-  
-@register_tool("删除好友", "remove_friend")  
-async def remove_friend(botev: BotEvent):  
-    msg = await botev.message()  
-    target_viewer_id = 0  
-    try:  
-        target_viewer_id = int(msg[0])  
-        del msg[0]  
-    except:  
-        await botev.finish("请输入目标玩家ID")  
-    
-      
-    config = {  
-        "target_viewer_id": target_viewer_id,  
-    }  
-    return config  
-  
-  
-@register_tool("申请列表", "pending_list")  
-async def pending_list(botev: BotEvent):  
-    return {}
-
-@register_tool("拉人", "clan_invite_player")
-async def clan_invite_player(botev: BotEvent):
-    msg = await botev.message()  
-    target_viewer_id = 0  
-    try:  
-        target_viewer_id = int(msg[0])  
-        del msg[0]  
-    except:  
-        await botev.finish("请输入目标玩家ID")  
-    
-      
-    config = {  
-        "target_viewer_id": target_viewer_id,  
-    }  
-    return config  
-
-@register_tool("踢人", "clan_kick_player")
-async def clan_kick_player(botev: BotEvent):
-    msg = await botev.message()  
-    target_viewer_id = 0  
-    try:  
-        target_viewer_id = int(msg[0])  
-        del msg[0]  
-    except:  
-        await botev.finish("请输入目标玩家ID")  
-    
-      
-    config = {  
-        "target_viewer_id": target_viewer_id,  
-    }  
-    return config
-
-@register_tool("黎明界开局", "labyrinth_start_reroll")
-async def labyrinth_start_reroll(botev: BotEvent):
-    guild_id = 0
-    msg = await botev.message()
-    try:
-        for guild in db.labyrinth_enter_guild.values():
-            if msg[0] in guild.guild_name.replace(r"\n", ""):
-                guild_id = guild.guild_id
-                del msg[0]
-                break
-    except:
-        pass
-    if guild_id == 0:
-        await botev.finish(f"未找到公会，请输入包含以下公会名字：" + "\n".join([guild.guild_name.replace(r"\n", "") for guild in db.labyrinth_enter_guild.values()]))
-    return {
-            "labyrinth_reroll_guild_id": guild_id,
-    }
+    msg = f"{prefix}一键编队 1 1\n" + "\n".join(
+            f"队伍{id} {' '.join(db.get_unit_name(uid * 100 + 1) for uid in team)}"
+            for id, team in enumerate(result)
+    )
+    await botev.finish(msg)

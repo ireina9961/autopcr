@@ -17,8 +17,8 @@ class guild_story_reading(Module):
 
         def guild_love_sum(guild_id: int) -> int:
             return (
-            flow(getattr(db.guild_data[guild_id], f"member{i}") for i in range(1, 31)) 
-            .where(lambda x: x != 0 and x in client.data.unit_love_data) 
+            flow(getattr(db.guild_data[guild_id], f"member{i}") for i in range(1, 31))
+            .where(lambda x: x != 0 and x in client.data.unit_love_data)
             .sum(lambda x: client.data.unit_love_data[x].love_level)
             )
 
@@ -73,14 +73,14 @@ class unit_story_reading(Module):
         read_story.add(0) # no pre story
         now = apiclient.datetime
         for story in db.unit_story:
-            if story.story_group_id == 1295:  # 忽略魔姬剧情
+            if story.story_group_id == 1255:  # 忽略魔姬剧情
                 continue
             if (
                 story.read_process_flag and
                 story.story_id not in read_story and
                 (story.pre_story_id in read_story or now >= db.parse_time(story.force_unlock_time)) and
                 (story.pre_story_id_2 in read_story or now >= db.parse_time(story.force_unlock_time_2)) and
-                story.story_group_id in client.data.unit_love_data and 
+                story.story_group_id in client.data.unit_love_data and
                 client.data.unit_love_data[story.story_group_id].love_level >= story.love_level and
                 apiclient.datetime >= db.parse_time(story.start_time) and
                 apiclient.datetime <= db.parse_time(story.end_time)
@@ -158,10 +158,10 @@ class hatsune_story_reading(Module):
         open_hatsune_id = set(hatsune.event_id for hatsune in db.get_open_hatsune())
         for story in db.event_story_detail:
             if story.story_id not in read_story and story.story_id in unlock_story:
-                if (story.visible_type == eStoryVisibleType.EVENT_SPECIAL_STORY or 
-                    story.visible_type == eStoryVisibleType.EVENT_SPECIAL_EPISODE or 
-                    story.visible_type == eStoryVisibleType.HIDDEN_BY_READ_CONDITION or 
-                    story.visible_type == eStoryVisibleType.PRE_RELEASE_STORY or 
+                if (story.visible_type == eStoryVisibleType.EVENT_SPECIAL_STORY or
+                    story.visible_type == eStoryVisibleType.EVENT_SPECIAL_EPISODE or
+                    story.visible_type == eStoryVisibleType.HIDDEN_BY_READ_CONDITION or
+                    story.visible_type == eStoryVisibleType.PRE_RELEASE_STORY or
                     story.visible_type == eStoryVisibleType.PRE_STORYID_AND_LOVE_LEVEL) and \
                         story.pre_story_id in read_story:
                     resp = await client.read_story(story.story_id)
@@ -169,7 +169,7 @@ class hatsune_story_reading(Module):
                     self.update_unlock_story(unlock_story, resp)
                     self._log(f"阅读了{story.title}")
 
-                elif story.visible_type == eStoryVisibleType.SEASONALY_DUMMY_STORY: 
+                elif story.visible_type == eStoryVisibleType.SEASONALY_DUMMY_STORY:
                     event_id = db.event_story_data[story.story_group_id].value
                     if event_id not in open_hatsune_id:
                         continue

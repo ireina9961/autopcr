@@ -32,7 +32,7 @@ class Candidate:
 
 class Config:
     """Base class for all configuration types."""
-    
+
     def __init__(self, key: str, desc: str, default: Any, candidates: Union[Callable, List], short_display: bool = False):
         from .modulebase import Module
         self.key = key
@@ -41,7 +41,7 @@ class Config:
         self._candidates = candidates
         self._parent: Module = None  # Will be set when the decorator is applied
         self.short_display = short_display
-    
+
     @property
     def config_type(self) -> str:
         """Return the configuration type identifier."""
@@ -68,11 +68,11 @@ class Config:
     def candidates_json(self):
         """Get the available candidates for this configuration."""
         return [Candidate(
-                    value = c, 
+                    value = c,
                     display = str(self.candidate_display(c)),
                     tags = self.candidate_tag(c),
                 ) for c in self.candidates]
-    
+
     @property
     def default(self):
         """Get the default value for this configuration."""
@@ -90,7 +90,7 @@ class Config:
             "candidates": self.candidates_json,
             "config_type": self.config_type,
         }
-    
+
     def get_value(self) -> Any:
         """Get the current value from the parent module."""
         raw_config = self._parent._get_raw_config(self.key)
@@ -116,17 +116,17 @@ class Config:
     def get_raw_value(self):
         """Get the current value from the parent module."""
         return self._parent._get_raw_config(self.key)
-    
+
     def process_value(self, value):
         """Process the raw value retrieved from storage."""
         # Base implementation that can be overridden
         return value
-    
+
     def validate_value(self, value):
         """Validate the value against the constraints of this configuration."""
         # Base implementation with no constraints
         return value if value in self.candidates else None
-    
+
     async def do_check(self, client: Optional[pcrclient] = None) -> Tuple[bool, str]:
         """Check if this configuration meets certain conditions."""
         return True, ""
@@ -137,17 +137,16 @@ class Config:
             cls.config = {}
         sself._parent = cls
         cls.config[self.key] = sself
-    
+
     def __call__(self, cls):
         """Make the Config instance callable for use as a decorator."""
         return _wrap_init(cls, lambda cls: self.wrap_init(cls, copy(self)))
-
 
 class BoolConfig(Config):
     @property
     def config_type(self):
         return 'bool'
-    
+
     def __init__(self, key: str, desc: str, default: bool):
         # For Bool, we provide display values for true/false
         super().__init__(key, desc, default, [True, False])
@@ -189,12 +188,12 @@ class MultiChoiceConfig(Config):
     @property
     def config_type(self):
         return 'multi'
-    
+
     def process_value(self, value):
         if not isinstance(value, list):
             return [value]
         return value
-    
+
     def validate_value(self, value: List):
         if value:
             return [v for v in value if v in self.candidates] or None
@@ -241,7 +240,7 @@ class TimeConfig(Config):
         except ValueError:
             pass
         return None
-        
+
     def get_value(self) -> str:
         """返回格式化的时间字符串 'HH:MM'"""
         value = super().get_value()
@@ -379,7 +378,7 @@ class ConditionalNotExecutionConfig(ConditionalNotExecutionClient, MultiChoiceCo
 
 class TravelQuestConfig(MultiChoiceConfig):
     """Configuration for travel quests."""
-    
+
     def __init__(self, key: str, desc: str, default: List):
         super().__init__(key, desc, default, lambda: db.travel_quest_data)
 
@@ -398,7 +397,7 @@ class TravelQuestConfig(MultiChoiceConfig):
 
 class LastNormalQuestConfig(MultiChoiceConfig):
     """Configuration for last normal quests."""
-    
+
     def __init__(self, key: str, desc: str, default: List):
         super().__init__(key, desc, default, db.last_normal_quest)
 
@@ -415,7 +414,7 @@ class LastNormalQuestConfig(MultiChoiceConfig):
 
 class ActiveHatsuneChoiceConfig(SingleChoiceConfig):
     """Configuration for active Hatsune."""
-    
+
     def __init__(self, key: str, desc: str, default: str):
         super().__init__(key, desc, default, db.get_active_hatsune_id)
 
@@ -430,7 +429,7 @@ class ActiveHatsuneChoiceConfig(SingleChoiceConfig):
 
 class ActiveHatsuneListConfig(MultiChoiceConfig):
     """Configuration for active Hatsune list."""
-    
+
     def __init__(self, key: str, desc: str, default: List):
         super().__init__(key, desc, default, db.get_active_hatsune_id)
 
@@ -448,7 +447,7 @@ class ActiveHatsuneListConfig(MultiChoiceConfig):
 
 class TalentConfig(MultiChoiceConfig):
     """Configuration for talent quests."""
-    
+
     def __init__(self, key: str, desc: str, default: List):
         super().__init__(key, desc, default, lambda: db.talents)
 

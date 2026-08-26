@@ -6,10 +6,9 @@ from ...model.error import *
 from ...model.custom import eDifficulty
 from ...db.database import db
 from ...model.enums import *
+from ...constants import AUTOBOX_CONFIG_PATH
+from ...util.integration import update_json_config
 from .autosweep import DIY_sweep
-import json
-
-_ABYSS_CONFIG_WRITTEN = False
 
 @description('''
 不扫等于15天不上线
@@ -20,34 +19,19 @@ _ABYSS_CONFIG_WRITTEN = False
 class abyss_quest_sweep(DIY_sweep):
     warn = True
 
-    async def get_start_quest(self, client: pcrclient) -> List[Tuple[int, int]]: 
+    async def get_start_quest(self, client: pcrclient) -> List[Tuple[int, int]]:
         ret = []
         for abyss in db.get_active_abyss():
             abyss_id = abyss.abyss_id
             await client.abyss_top(abyss_id)
+            update_json_config(
+                AUTOBOX_CONFIG_PATH,
+                {"abyss_id": abyss_id, "boss_ticket_id": abyss.boss_ticket_id},
+            )
             for quest in db.abyss_quest_info[abyss_id]:
                 ret.append((quest.quest_id, client.data.settings.abyss.daily_clear_limit_count))
         if not ret:
-            self._log("当前无进行中的深渊讨伐战")
-        else:
-            self._log("讨伐战ID：" + str(abyss_id))
-            self._log("物品ID：" + str(abyss.boss_ticket_id))
-
-            global _ABYSS_CONFIG_WRITTEN
-            if not _ABYSS_CONFIG_WRITTEN:
-                config_path = "/opt/hoshino_pcr/hoshino/modules/autobox/abyss_id_config.json"
-                data = {}
-                try:
-                    with open(config_path, "r", encoding="utf-8") as f:
-                        data = json.load(f) or {}
-                except Exception:
-                    data = {}
-                data["abyss_id"] = abyss_id
-                data["boss_ticket_id"] = abyss.boss_ticket_id
-                with open(config_path, "w", encoding="utf-8") as f:
-                    json.dump(data, f, ensure_ascii=False)
-                _ABYSS_CONFIG_WRITTEN = True
-
+            raise SkipError("当前无进行中的深渊讨伐战")
         return ret
 
 @description('''

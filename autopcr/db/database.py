@@ -1,4 +1,4 @@
-from typing import List, Dict, Set, Tuple, Union, Optional
+from typing import Callable, List, Dict, Set, Tuple, Union, Optional
 import typing
 import asyncio
 from ..model.enums import eCampaignCategory, eParamType
@@ -71,6 +71,7 @@ class database():
     ex_rainbow_enhance_pt: ItemType = (eInventoryType.Item, 26202)
     ex_rainbow_enhance_ball: ItemType = (eInventoryType.Item, 26203)
     unit_role_gach_ticket: ItemType = (eInventoryType.Item, 23003)
+    labyrinth_ticket: ItemType = (eInventoryType.Item, 99013)
 
     def __init__(self):
         self.dbmgr: Optional[dbmgr] = None
@@ -150,6 +151,68 @@ class database():
         finally:
             if asyncio.current_task() is self._cache_cleanup_task:
                 self._cache_cleanup_task = None
+
+    @lazy_property
+    def labyrinth_enter_guild(self) -> Dict[int, LabyrinthEnterGuild]:
+        with self.dbmgr.session() as db:
+            return (
+                LabyrinthEnterGuild.query(db)
+                .to_dict(lambda x: x.guild_id, lambda x: x)
+            )
+
+    @lazy_property
+    def labyrinth_quest_data(self) -> Dict[int, LabyrinthQuestDatum]:
+        with self.dbmgr.session() as db:
+            return (
+                LabyrinthQuestDatum.query(db)
+                .to_dict(lambda x: x.quest_id, lambda x: x)
+            )
+
+    @lazy_property
+    def labyrinth_wave_group_data(self) -> Dict[int, LabyrinthWaveGroupDatum]:
+        with self.dbmgr.session() as db:
+            return (
+                LabyrinthWaveGroupDatum.query(db)
+                .to_dict(lambda x: x.wave_group_id, lambda x: x)
+            )
+
+    @lazy_property
+    def labyrinth_enemy_parameter(self) -> Dict[int, LabyrinthEnemyParameter]:
+        with self.dbmgr.session() as db:
+            return (
+                LabyrinthEnemyParameter.query(db)
+                .to_dict(lambda x: x.enemy_id, lambda x: x)
+            )
+
+    @lazy_property
+    def labyrinth_boss_info(self) -> Dict[int, Dict[int, str]]:
+        boss_info: Dict[int, Dict[int, str]] = {}
+        for quest in self.labyrinth_quest_data.values():
+            area = quest.quest_id // 100000 % 10
+            if quest.quest_type != 3:
+                continue
+
+            area_info = boss_info.setdefault(area, {})
+
+            wave_group = self.labyrinth_wave_group_data.get(quest.wave_group_id)
+            if not wave_group:
+                continue
+
+            enemies = [
+                self.labyrinth_enemy_parameter.get(enemy_id)
+                for enemy_id in wave_group.get_enemy_ids()
+            ]
+            enemies = [enemy for enemy in enemies if enemy]
+            if not enemies:
+                continue
+
+            boss = max(enemies, key=lambda enemy: enemy.hp)
+            area_info[boss.unit_id] = boss.name
+
+        return {
+            area: dict(sorted(area_info.items()))
+            for area, area_info in boss_info.items()
+        }
 
     @lazy_property
     def redeem_unit(self) -> Dict[int, Dict[int, RedeemUnit]]:
@@ -289,7 +352,7 @@ class database():
         with self.dbmgr.session() as db:
             return (
                 QuestDatum.query(db)
-                .where(lambda x: self.is_normal_quest(x.quest_id)) 
+                .where(lambda x: self.is_normal_quest(x.quest_id))
                 .to_dict(lambda x: x.quest_id, lambda x: x)
             )
 
@@ -321,7 +384,7 @@ class database():
                 .select_many(lambda y: self.reward_groups[y].get_rewards() if y in self.reward_groups else [])
                 .where(lambda y: y != 0 and y.reward_item[0] == eInventoryType.Equip)
                 .select(lambda y: Counter({y.reward_item: y.reward_num * y.odds / 100.0}))
-                .sum(seed=Counter()) + 
+                .sum(seed=Counter()) +
                 extra_drops.get(x.quest_id // 1000, Counter())
             )
         )
@@ -342,11 +405,11 @@ class database():
                 .group_by(lambda x: x.equipment_id)
                 .to_dict(lambda x: x.key, lambda x: x.to_list())
             )
-        
+
     @lazy_property
     def unique_equip_rank(self) -> Dict[int, Dict[int, UniqueEquipmentEnhanceDatum]]:
             with self.dbmgr.session() as db:
-                return ( 
+                return (
                 UniqueEquipmentEnhanceDatum.query(db)
                 .group_by(lambda x: x.equip_slot)
                 .to_dict(lambda x: x.key, lambda x: x
@@ -359,7 +422,7 @@ class database():
         with self.dbmgr.session() as db:
             return (
                 EquipmentCraft.query(db)
-                .to_dict(lambda x: (eInventoryType.Equip, x.equipment_id), lambda x: 
+                .to_dict(lambda x: (eInventoryType.Equip, x.equipment_id), lambda x:
                     flow(x.get_materials())
                     .where(lambda y: y[0][1] != 0 and y[1] != 0)
                     .to_list()
@@ -389,7 +452,7 @@ class database():
             return (
                 PromotionBonus.query(db)
                 .group_by(lambda x: x.unit_id)
-                .to_dict(lambda x: x.key, lambda x: 
+                .to_dict(lambda x: x.key, lambda x:
                     x.to_dict(lambda x: x.promotion_level, lambda x: x))
             )
 
@@ -566,9 +629,25 @@ class database():
             return (
                     UnitUniqueEquipment.query(db)
                     .group_by(lambda x: x.equip_slot)
-                    .to_dict(lambda x: x.key, lambda x: 
+                    .to_dict(lambda x: x.key, lambda x:
                         x.to_dict(lambda x: x.unit_id, lambda x: x))
                 )
+
+    @lazy_property
+    def unit_role_data(self) -> Dict[int, int]:
+        with self.dbmgr.session() as db:
+            return (
+                UnitRoleDatum.query(db)
+                .to_dict(lambda x: x.unit_id, lambda x: x.unit_role_id)
+            )
+
+    @lazy_property
+    def unit_role_gacha_level(self) -> Dict[int, UnitRoleGachaLevel]:
+        with self.dbmgr.session() as db:
+            return (
+                UnitRoleGachaLevel.query(db)
+                .to_dict(lambda x: x.gacha_level, lambda x: x)
+            )
 
     @lazy_property
     def unique_equipment_enhance_data(self) -> Dict[int, Dict[int, UniqueEquipmentEnhanceDatum]]:
@@ -576,7 +655,7 @@ class database():
             return (
                 UniqueEquipmentEnhanceDatum.query(db)
                 .group_by(lambda x: x.equip_slot)
-                .to_dict(lambda x: x.key, lambda x: 
+                .to_dict(lambda x: x.key, lambda x:
                      x.to_dict(lambda x: x.enhance_level, lambda x: x))
             )
 
@@ -615,7 +694,7 @@ class database():
                 .to_dict(lambda x: x.key, lambda x: x
                     .to_dict(lambda x: x.rarity, lambda x: x))
                 )
-        
+
     @lazy_property
     def rarity_up_required(self) -> Dict[int, Dict[int, typing.Counter[ItemType]]]:
         with self.dbmgr.session() as db:
@@ -743,7 +822,7 @@ class database():
                 .where(lambda x: x.area_id == 21001)
                 .to_dict(lambda x: x.quest_id, lambda x: x)
             )
-        
+
     @lazy_property
     def chara_fortune_schedule(self) -> Dict[int, CharaFortuneSchedule]:
         with self.dbmgr.session() as db:
@@ -772,6 +851,25 @@ class database():
                 .concat(AbyssQuestDatum.query(db))
                 .to_dict(lambda x: x.quest_id, lambda x: x)
             )
+
+    def _get_current_investigation_quests(self, quest_filter: Callable[[int], bool], reward_id: int) -> List[QuestDatum]:
+        now = apiclient.datetime
+        return sorted(
+            [quest for quest in self.quest_info.values()
+             if quest_filter(quest.quest_id)
+             and quest.reward_image_1 == reward_id
+             and self.parse_time(quest.start_time) <= now < self.parse_time(quest.end_time)],
+            key=lambda quest: quest.quest_id,
+            reverse=True,
+        )
+
+    @lazy_property
+    def heart_piece_quest(self) -> List[QuestDatum]:
+        return self._get_current_investigation_quests(self.is_heart_piece_quest, self.xinsui[1])
+
+    @lazy_property
+    def star_cup_quest(self) -> List[QuestDatum]:
+        return self._get_current_investigation_quests(self.is_star_cup_quest, self.xingqiubei[1])
 
     @lazy_property
     def abyss_quest_info(self) -> Dict[int, List[AbyssQuestDatum]]:
@@ -805,7 +903,7 @@ class database():
             for unit_id in story.get_effect_unit_ids():
                 ret[unit_id].append(story)
         return ret
-        
+
     @lazy_property
     def guild_story(self) -> List[StoryDetail]:
         with self.dbmgr.session() as db:
@@ -1016,7 +1114,7 @@ class database():
             return (
                 EquipmentEnhanceDatum.query(db)
                 .group_by(lambda x: x.promotion_level)
-                .to_dict(lambda x: x.key, lambda x: 
+                .to_dict(lambda x: x.key, lambda x:
                      x.to_dict(lambda x: x.equipment_enhance_level, lambda x: x))
             )
 
@@ -1093,10 +1191,10 @@ class database():
                 return ( # id, level
                 RoomItemDetail.query(db)
                 .group_by(lambda x: x.room_item_id)
-                .to_dict(lambda x: x.key, lambda x: 
+                .to_dict(lambda x: x.key, lambda x:
                     x.to_dict(lambda x: x.level, lambda x: x))
         )
-        
+
     @lazy_property
     def daily_mission_data(self) -> Dict[int, DailyMissionDatum]:
         with self.dbmgr.session() as db:
@@ -1256,7 +1354,7 @@ class database():
                 TowerSchedule.query(db)
                 .to_dict(lambda x: x.tower_schedule_id, lambda x: x)
             )
-        
+
     @lazy_property
     def dungeon_name(self) -> Dict[int, str]:
         with self.dbmgr.session() as db:
@@ -1281,7 +1379,7 @@ class database():
                 CampaignFreegacha.query(db)
                 .to_dict(lambda x: x.campaign_id, lambda x: x)
             )
-        
+
     @lazy_property
     def campaign_free_gacha_data(self) -> Dict[int, List[CampaignFreegachaDatum]]:
         with self.dbmgr.session() as db:
@@ -1684,7 +1782,7 @@ class database():
             return (
                 ExEquipmentRankupDatum.query(db)
                 .group_by(lambda x: x.rarity)
-                .to_dict(lambda x: x.key, lambda x: 
+                .to_dict(lambda x: x.key, lambda x:
                     x.to_dict(lambda x: x.rankup_level, lambda x: x)
                 )
             )
@@ -1842,7 +1940,7 @@ class database():
     def experience_knight_rank(self) -> Dict[int, ExperienceKnightRank]:
         with self.dbmgr.session() as db:
             return (
-                ExperienceKnightRank.query(db) 
+                ExperienceKnightRank.query(db)
                 .to_dict(
                     lambda x: x.knight_rank,
                     lambda x: x.total_exp
@@ -2025,7 +2123,7 @@ class database():
     def get_inventory_name(self, item: InventoryInfo) -> str:
         try:
             if item.type == eInventoryType.ExtraEquip:
-                return f"{self.get_ex_equip_rarity_name(item.id)}{item.ex_equip.rank}-" + self.inventory_name[(item.type, item.id)] 
+                return f"{self.get_ex_equip_rarity_name(item.id)}{item.ex_equip.rank}-" + self.inventory_name[(item.type, item.id)]
             return self.inventory_name[(item.type, item.id)]
         except:
             return f"未知物品({item.id})"
@@ -2038,7 +2136,7 @@ class database():
 
     def get_ex_equip_name(self, item: int, rank: int = -1) -> str:
         try:
-            return f"{self.ex_rarity_name[self.ex_equipment_data[item].rarity]}{rank if rank != -1 else ''}-" + self.inventory_name[(eInventoryType.ExtraEquip, item)] 
+            return f"{self.ex_rarity_name[self.ex_equipment_data[item].rarity]}{rank if rank != -1 else ''}-" + self.inventory_name[(eInventoryType.ExtraEquip, item)]
         except:
             return f"未知ex装备({item})"
 
@@ -2182,9 +2280,9 @@ class database():
         return item[0] == eInventoryType.Item and item[1] >= 25011 and item[1] < 25103
 
     def is_room_item_level_upable(self, team_level: int, item: RoomUserItem, now: int) -> bool:
-        return (item.room_item_level < self.room_item[item.room_item_id].max_level and 
+        return (item.room_item_level < self.room_item[item.room_item_id].max_level and
                 item.room_item_level in self.room_item_detail[item.room_item_id] and
-                team_level >= self.room_item_detail[item.room_item_id][item.room_item_level].lvup_trigger_value and 
+                team_level >= self.room_item_detail[item.room_item_id][item.room_item_level].lvup_trigger_value and
                 (item.level_up_end_time is None or item.level_up_end_time < now))
 
     def is_normal_quest(self, quest_id: int) -> bool:
@@ -2377,14 +2475,12 @@ class database():
         tomorrow = now + datetime.timedelta(days = 1)
         half_day = datetime.timedelta(hours = 7)
         n3 = (flow(self.campaign_schedule.values())
-                .where(lambda x: self.is_normal_quest_campaign(x.id) and x.value >= 6000 and self.is_level_effective_scope_in_campaign(level, x.id)) # TODO change 3000 when stop speed up
-                # .where(lambda x: self.is_normal_quest_campaign(x.id) and x.value >= 3000 and self.is_level_effective_scope_in_campaign(level, x.id))
+                .where(lambda x: self.is_normal_quest_campaign(x.id) and x.value >= 3000 and self.is_level_effective_scope_in_campaign(level, x.id))
                 .select(lambda x: (db.parse_time(x.start_time), db.parse_time(x.end_time)))
                 .to_list()
               )
         h3 = (flow(self.campaign_schedule.values())
-                .where(lambda x: self.is_hard_quest_campaign(x.id) and x.value >= 6000) # TODO change 3000 when stop speed up
-                # .where(lambda x: self.is_hard_quest_campaign(x.id) and x.value >= 3000)
+                .where(lambda x: self.is_hard_quest_campaign(x.id) and x.value >= 3000)
                 .select(lambda x: (db.parse_time(x.start_time), db.parse_time(x.end_time)))
                 .to_list()
              )
@@ -2417,22 +2513,22 @@ class database():
         return id_from <= quest_id and quest_id <= id_to
 
     def is_clan_battle_time(self, now: Union[None, datetime.datetime] = None) -> bool:
-        schedule = [(db.parse_time(schedule.start_time), db.parse_time(schedule.end_time)) 
+        schedule = [(db.parse_time(schedule.start_time), db.parse_time(schedule.end_time))
                     for schedule in self.clan_battle_period.values()]
         return self.is_target_time(schedule, now)
 
     def is_cf_time(self, now: Union[None, datetime.datetime] = None) -> bool:
-        schedule = [(db.parse_time(schedule.start_time), db.parse_time(schedule.end_time)) 
+        schedule = [(db.parse_time(schedule.start_time), db.parse_time(schedule.end_time))
                     for schedule in self.chara_fortune_schedule.values()]
         return self.is_target_time(schedule, now)
 
     def is_secret_dungeon_time(self) -> bool:
-        schedule = [(db.parse_time(schedule.start_time), db.parse_time(schedule.end_time)) 
+        schedule = [(db.parse_time(schedule.start_time), db.parse_time(schedule.end_time))
                     for schedule in self.secret_dungeon_schedule.values()]
         return self.is_target_time(schedule)
 
     def get_open_secret_dungeon_area(self) -> int:
-        schedule = [schedule.dungeon_area_id 
+        schedule = [schedule.dungeon_area_id
                     for schedule in self.secret_dungeon_schedule.values() if self.is_target_time([(db.parse_time(schedule.start_time), db.parse_time(schedule.end_time))])]
         assert len(schedule) == 1
         return schedule[0]
@@ -2491,9 +2587,9 @@ class database():
             .sum()
         )
 
-    def get_unique_equip_material_demand(self, unit_id: int, slot_id:int, start_rank:int, target_rank: int) -> typing.Counter[ItemType]: 
+    def get_unique_equip_material_demand(self, unit_id: int, slot_id:int, start_rank:int, target_rank: int) -> typing.Counter[ItemType]:
         if unit_id not in db.unit_unique_equip[slot_id]:
-            return Counter() 
+            return Counter()
         equip_id = db.unit_unique_equip[slot_id][unit_id].equip_id
         return (
             flow(db.unique_equip_required[equip_id].items())
@@ -2520,7 +2616,7 @@ class database():
         queue = SimpleQueue()
         for key, value in source.items():
             queue.put((key, value)) # ItemType, count
-        
+
         while not queue.empty():
             key, value = queue.get()
             if key in self.equip_craft:
@@ -2546,10 +2642,10 @@ class database():
         return self.experience_unit[target_level]
 
     def query_knight_exp_rank(self, target_value: int) -> int:
-        target_rank = max(  
-            (rank for rank, exp in self.experience_knight_rank.items() if target_value >= exp),  
-            default=1  
-        )  
+        target_rank = max(
+            (rank for rank, exp in self.experience_knight_rank.items() if target_value >= exp),
+            default=1
+        )
 
         return target_rank
 
@@ -2663,7 +2759,7 @@ class database():
     def get_shop_item_price_info(self, price_group_id: int, bought_cnt: int) -> ShopStaticPriceGroup:
         buy_cnt = bought_cnt + 1
         item = flow(self.shop_static_price_group[price_group_id]) \
-            .first(lambda x: x.buy_count_from <= buy_cnt and (buy_cnt <= x.buy_count_to or x.buy_count_to == -1)) 
+            .first(lambda x: x.buy_count_from <= buy_cnt and (buy_cnt <= x.buy_count_to or x.buy_count_to == -1))
         return item
 
     def get_talent_level(self, point: int) -> int:
@@ -2751,7 +2847,7 @@ class database():
         if gacha_id in self.prizegacha_sp_data:
             prize_rarity = self.prizegacha_sp_data[gacha_id][prize_rarity].disp_rarity
             if prize_rarity in self.prizegacha_sp_detail:
-                return self.prizegacha_sp_detail[prize_rarity].name 
+                return self.prizegacha_sp_detail[prize_rarity].name
         return f"{prize_rarity}等奖"
 
     def is_unit_rank_bonus(self, unit_id: int, promotion_level: int) -> bool:
@@ -2876,38 +2972,5 @@ class database():
         ids = list(set(j.status for i in self.ex_equipment_sub_status.values() for j in i.values()))
         ids.append(0)
         return sorted(ids)
-
-
-    @lazy_property
-    def labyrinth_enter_guild(self) -> Dict[int, LabyrinthEnterGuild]:
-        with self.dbmgr.session() as db:
-            return (
-                LabyrinthEnterGuild.query(db)
-                .to_dict(lambda x: x.guild_id, lambda x: x)
-            )
-
-    @lazy_property
-    def labyrinth_quest_data(self) -> Dict[int, LabyrinthQuestDatum]:
-        with self.dbmgr.session() as db:
-            return (
-                LabyrinthQuestDatum.query(db)
-                .to_dict(lambda x: x.quest_id, lambda x: x)
-            )
-
-    @lazy_property
-    def labyrinth_wave_group_data(self) -> Dict[int, LabyrinthWaveGroupDatum]:
-        with self.dbmgr.session() as db:
-            return (
-                LabyrinthWaveGroupDatum.query(db)
-                .to_dict(lambda x: x.wave_group_id, lambda x: x)
-            )
-
-    @lazy_property
-    def labyrinth_enemy_parameter(self) -> Dict[int, LabyrinthEnemyParameter]:
-        with self.dbmgr.session() as db:
-            return (
-                LabyrinthEnemyParameter.query(db)
-                .to_dict(lambda x: x.enemy_id, lambda x: x)
-            )
 
 db = database()

@@ -241,7 +241,7 @@ class TprPanelDatum(models.TprPanelDatum):
             yield self.correct_parts_id_3
         if self.correct_parts_id_4 != 0:
             yield self.correct_parts_id_4
-    
+
     def get_another_parts(self):
         if self.another_parts_id_1 != 0:
             yield self.another_parts_id_1
