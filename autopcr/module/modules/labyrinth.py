@@ -1,4 +1,3 @@
-import asyncio
 from typing import Dict, List, Optional, Set, Tuple
 
 from ..modulebase import *
@@ -7,10 +6,6 @@ from ...core.pcrclient import pcrclient
 from ...model.error import *
 from ...db.database import db
 from ...model.enums import eLabyrinthBlockType
-from ...constants import LABYRINTH_REROLL_INTERVAL_SECONDS
-
-
-_LABYRINTH_REROLL_LOCK = asyncio.Lock()
 
 LABYRINTH_BLOCK_TYPE_NAME = {
     eLabyrinthBlockType.NONE: "起点",
@@ -30,7 +25,7 @@ LABYRINTH_BLOCK_TYPE_NAME = {
 @LabyrinthBossConfig('labyrinth_reroll_area3_boss', '区域3Boss', 3, [301206, 312505, 319604])
 @singlechoice('labyrinth_reroll_third_block_type', '区域3/5第3格', '事件', ['遗物', '事件', '任意'])
 @singlechoice('labyrinth_reroll_second_block_type', '区域2第4格', '遗物', ['遗物', '商店', '任意'])
-@singlechoice('labyrinth_reroll_max_count', '重开上限', 100, [50, 100, 200, 300])
+@singlechoice('labyrinth_reroll_max_count', '重开上限', 100, [100, 500, 1000, 2000])
 @booltype('labyrinth_reroll_perfect_start', '完美开局', False)
 @LabyrinthGuildConfig('labyrinth_reroll_guild_id', '公会', 5)
 @singlechoice('labyrinth_reroll_difficulty', '难度', 5, [1, 2, 3, 4, 5])
@@ -251,13 +246,6 @@ class labyrinth_start_reroll(Module):
         return f"区域{area}：" + "-".join(parts)
 
     async def do_task(self, client: pcrclient):
-        if _LABYRINTH_REROLL_LOCK.locked():
-            raise AbortError("已有黎明界刷开局任务正在运行，请稍后再试")
-
-        async with _LABYRINTH_REROLL_LOCK:
-            await self._do_reroll(client)
-
-    async def _do_reroll(self, client: pcrclient):
         guild_id: int = self.get_config('labyrinth_reroll_guild_id')
         difficulty: int = self.get_config('labyrinth_reroll_difficulty')
         area3_bosses: Set[int] = set(self.get_config('labyrinth_reroll_area3_boss'))
@@ -290,8 +278,6 @@ class labyrinth_start_reroll(Module):
             if enter.enter_id:
                 await client.labyrinth_retire(enter.enter_id)
             await client.labyrinth_top()
-            if LABYRINTH_REROLL_INTERVAL_SECONDS:
-                await asyncio.sleep(LABYRINTH_REROLL_INTERVAL_SECONDS)
 
         raise AbortError(f"重开{max_count}次仍未刷到目标路线")
 

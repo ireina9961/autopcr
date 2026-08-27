@@ -49,10 +49,6 @@ USE_HTTPS = strtobool(os.getenv("AUTOPCR_USE_HTTPS", "false"))
 # from depending on another checkout under /opt.
 AUTOBOX_CONFIG_PATH = os.getenv("AUTOPCR_AUTOBOX_CONFIG_PATH", "")
 CHARA_NAME_OVERRIDE_PATH = os.getenv("AUTOPCR_CHARA_NAME_PATH", "")
-LABYRINTH_REROLL_INTERVAL_SECONDS = max(
-    0.0,
-    float(os.getenv("AUTOPCR_LABYRINTH_REROLL_INTERVAL", "0.5")),
-)
 
 # Headers
 DEFAULT_HEADERS = {
