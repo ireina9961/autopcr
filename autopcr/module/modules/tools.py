@@ -2,7 +2,7 @@ from typing import List, Set, Tuple
 
 from ...util.ilp_solver import memory_use_average
 
-from ...model.common import ChangeRarityUnit, DeckListData, GachaPointInfo, GrandArenaHistoryDetailInfo, GrandArenaHistoryInfo, GrandArenaSearchOpponent, ProfileUserInfo, RankingSearchOpponent, RedeemUnitInfo, RedeemUnitSlotInfo, UnitData, UnitDataLight, VersusResult, VersusResultDetail
+from ...model.common import ChangeRarityUnit, DeckListData, ExtraEquipChangeSlot, ExtraEquipChangeUnit, GachaPointInfo, GrandArenaHistoryDetailInfo, GrandArenaHistoryInfo, GrandArenaSearchOpponent, ProfileUserInfo, RankingSearchOpponent, RedeemUnitInfo, RedeemUnitSlotInfo, UnitData, UnitDataLight, VersusResult, VersusResultDetail
 from ...model.responses import GachaIndexResponse, PsyTopResponse
 from ...db.models import GachaExchangeLineup
 from ...model.custom import ArenaQueryResult, GachaReward, ItemType, eRedeemUnitUnlockCondition
@@ -42,6 +42,256 @@ class set_support_unit_base(Module):
     SUPPORT_POSITIONS: Tuple[int, int] = ()
     UNIT_CONFIG_KEY: str = ""
     SUPPORT_LABEL: str = ""
+    USE_CLAN_BATTLE_EX = False
+
+    def _ex_slots(self, unit):
+        return unit.cb_ex_equip_slot if self.USE_CLAN_BATTLE_EX else unit.ex_equip_slot
+
+    def _ex_change(self, unit_id: int, slots):
+        change_slots = [
+            ExtraEquipChangeSlot(slot=slot, serial_id=serial_id)
+            for slot, serial_id in slots
+        ]
+        return ExtraEquipChangeUnit(
+            unit_id=unit_id,
+            ex_equip_slot=None if self.USE_CLAN_BATTLE_EX else change_slots,
+            cb_ex_equip_slot=change_slots if self.USE_CLAN_BATTLE_EX else None,
+        )
+
+    def _format_unit_training(self, client: pcrclient, unit_id: int):
+        unit = client.data.unit[unit_id]
+        battle_rarity = unit.battle_rarity or unit.unit_rarity
+        rarity = (
+            f"{battle_rarity}星（本体{unit.unit_rarity}星）"
+            if battle_rarity != unit.unit_rarity
+            else f"{unit.unit_rarity}星"
+        )
+        equip_status = "".join(
+            "-" if not equip.is_slot else str(equip.enhancement_level)
+            for equip in unit.equip_slot
+        )
+        equip_count = sum(bool(equip.is_slot) for equip in unit.equip_slot)
+        unique_slots = unit.unique_equip_slot or []
+        unique_status = (
+            "/".join(
+                "0" if not equip.is_slot else str(equip.enhancement_level)
+                for equip in unique_slots
+            )
+            if unique_slots
+            else "未实装"
+        )
+        ub_level = "/".join(
+            str(skill.skill_level) for skill in (unit.union_burst or [])
+        ) or "无"
+        skill_level = "/".join(
+            str(skill.skill_level) for skill in (unit.main_skill or [])
+        ) or "无"
+        ex_skill_level = "/".join(
+            str(skill.skill_level) for skill in (unit.ex_skill or [])
+        ) or "无"
+
+        ex_lines = []
+        for slot, ex_slot in enumerate(self._ex_slots(unit), start=1):
+            if not ex_slot.serial_id:
+                ex_lines.append(f"  {slot}号位：未装备")
+                continue
+            ex = client.data.ex_equips.get(ex_slot.serial_id)
+            if ex is None:
+                ex_lines.append(f"  {slot}号位：未知(serial:{ex_slot.serial_id})")
+                continue
+            star = db.get_ex_equip_star_from_pt(
+                ex.ex_equipment_id, ex.enhancement_pt
+            )
+            sub_status = db.get_ex_equip_sub_status_str(
+                ex.ex_equipment_id, ex.sub_status or []
+            )
+            sub_text = f"（{sub_status}）" if sub_status else ""
+            ex_lines.append(
+                f"  {slot}号位：{db.get_ex_equip_name(ex.ex_equipment_id, ex.rank)}"
+                f"★{star}{sub_text}"
+            )
+        frame_name = "会战EX" if self.USE_CLAN_BATTLE_EX else "普通EX"
+        return (
+            "角色当前练度：\n"
+            f"星级：{rarity}  等级：{unit.unit_level}\n"
+            f"品级：R{unit.promotion_level}-{equip_count}（{equip_status}）\n"
+            f"专武：{unique_status}\n"
+            f"UB：{ub_level}  技能：{skill_level}  EX技能：{ex_skill_level}\n"
+            f"{frame_name}：\n" + "\n".join(ex_lines)
+        )
+
+    async def _restore_ex_snapshot(self, client: pcrclient, snapshot):
+        clear_changes = []
+        restore_changes = []
+        for unit_id, original_slots in snapshot.items():
+            current_slots = self._ex_slots(client.data.unit[unit_id])
+            slots_to_clear = [
+                (slot, 0)
+                for slot, current in enumerate(current_slots, start=1)
+                if current.serial_id
+            ]
+            if slots_to_clear:
+                clear_changes.append(self._ex_change(unit_id, slots_to_clear))
+            slots_to_restore = [
+                (slot, serial_id)
+                for slot, serial_id in enumerate(original_slots, start=1)
+                if serial_id
+            ]
+            if slots_to_restore:
+                restore_changes.append(self._ex_change(unit_id, slots_to_restore))
+
+        if clear_changes:
+            await client.unit_equip_ex(clear_changes)
+        if restore_changes:
+            await client.unit_equip_ex(restore_changes)
+
+    async def _equip_best_ex(self, client: pcrclient, unit_id: int):
+        """Move the best currently owned EX equipment to one support unit.
+
+        Returns a snapshot of every touched unit so the caller can restore the
+        previous state if setting the support unit subsequently fails.
+        """
+        unit = client.data.unit[unit_id]
+        target_slots = self._ex_slots(unit)
+        if not target_slots or unit_id not in db.unit_ex_equipment_slot:
+            self._warn(f"[{db.get_unit_name(unit_id)}]尚未开放EX装备槽位")
+            return {}
+
+        owners = {}
+        for owner_id, owner_unit in client.data.unit.items():
+            for slot, ex_slot in enumerate(self._ex_slots(owner_unit), start=1):
+                if ex_slot.serial_id:
+                    owners[ex_slot.serial_id] = (owner_id, slot)
+
+        forbidden = (
+            set(client.data.user_clan_battle_ex_equip_restriction)
+            if self.USE_CLAN_BATTLE_EX
+            else set()
+        )
+        slot_data = db.unit_ex_equipment_slot[unit_id]
+        categories = (
+            slot_data.slot_category_1,
+            slot_data.slot_category_2,
+            slot_data.slot_category_3,
+        )
+        base_attr = db.calc_unit_attribute(
+            unit,
+            set(client.data.read_story_ids),
+            client.data.ex_equips,
+            exclude_ex_equip=True,
+        )
+        coefficient = db.unit_status_coefficient[1]
+        selected = set()
+        desired = {}
+        detail = []
+
+        for slot, category in enumerate(categories, start=1):
+            if slot > len(target_slots):
+                break
+            current_serial = target_slots[slot - 1].serial_id or 0
+            if current_serial in forbidden:
+                # A restricted clan-battle item cannot even move between slots.
+                desired[slot] = current_serial
+                selected.add(current_serial)
+                detail.append(f"{slot}号位保留会战CD装备")
+                continue
+
+            candidates = []
+            for ex in client.data.ex_equips.values():
+                if ex.serial_id in selected or ex.serial_id in forbidden:
+                    continue
+                ex_data = db.ex_equipment_data.get(ex.ex_equipment_id)
+                if ex_data is None or ex_data.category != category:
+                    continue
+                star = db.get_ex_equip_star_from_pt(
+                    ex.ex_equipment_id, ex.enhancement_pt
+                )
+                bonus = base_attr.ex_equipment_mul(
+                    ex_data.get_unit_attribute(star, ex.sub_status)
+                ).ceil()
+                power = bonus.get_power(coefficient)
+                candidates.append((
+                    power,
+                    ex.serial_id == current_serial,
+                    db.get_ex_equip_rarity(ex.ex_equipment_id),
+                    star,
+                    ex.enhancement_pt,
+                    ex.rank,
+                    -ex.serial_id,
+                    ex,
+                ))
+
+            if not candidates:
+                if current_serial:
+                    desired[slot] = current_serial
+                    selected.add(current_serial)
+                detail.append(f"{slot}号位无可用EX装备")
+                continue
+
+            best = max(candidates)
+            ex = best[-1]
+            desired[slot] = ex.serial_id
+            selected.add(ex.serial_id)
+            donor = owners.get(ex.serial_id)
+            donor_text = ""
+            if donor and donor[0] != unit_id:
+                donor_text = f"，从[{db.get_unit_name(donor[0])}]转移"
+            detail.append(
+                f"{slot}号位{db.get_ex_equip_name(ex.ex_equipment_id, ex.rank)}"
+                f"★{best[3]}{donor_text}"
+            )
+
+        target_changes = [
+            (slot, serial_id)
+            for slot, serial_id in desired.items()
+            if target_slots[slot - 1].serial_id != serial_id
+        ]
+        donor_changes = {}
+        for serial_id in desired.values():
+            donor = owners.get(serial_id)
+            if donor and donor[0] != unit_id:
+                donor_changes.setdefault(donor[0], []).append((donor[1], 0))
+
+        affected_ids = set(donor_changes)
+        if target_changes:
+            affected_ids.add(unit_id)
+        if not affected_ids:
+            self._log(f"[{db.get_unit_name(unit_id)}]已穿戴当前可用的最优EX装备")
+            return {}
+
+        snapshot = {
+            affected_id: tuple(
+                ex_slot.serial_id or 0
+                for ex_slot in self._ex_slots(client.data.unit[affected_id])
+            )
+            for affected_id in affected_ids
+        }
+        try:
+            if donor_changes:
+                await client.unit_equip_ex([
+                    self._ex_change(donor_id, slots)
+                    for donor_id, slots in donor_changes.items()
+                ])
+            if target_changes:
+                await client.unit_equip_ex([
+                    self._ex_change(unit_id, target_changes)
+                ])
+        except Exception as operation_error:
+            try:
+                await self._restore_ex_snapshot(client, snapshot)
+            except Exception as rollback_error:
+                raise PanicError(
+                    f"为[{db.get_unit_name(unit_id)}]穿戴最优EX装备失败，"
+                    f"且原穿戴恢复失败：{rollback_error}"
+                ) from operation_error
+            raise
+
+        frame_name = "会战EX" if self.USE_CLAN_BATTLE_EX else "普通EX"
+        self._log(
+            f"已为[{db.get_unit_name(unit_id)}]穿戴战力最高的{frame_name}："
+            + "；".join(detail)
+        )
+        return snapshot
 
     async def do_task(self, client: pcrclient):
         unit_id = int(self.get_config(self.UNIT_CONFIG_KEY))
@@ -69,8 +319,9 @@ class set_support_unit_base(Module):
             if support.position in self.SUPPORT_POSITIONS
         ]
 
-        if any(support.unit_id == unit_id for support in target_support_units):
-            raise SkipError(f"{unit_name}已在{self.SUPPORT_LABEL}支援中")
+        already_in_target = any(
+            support.unit_id == unit_id for support in target_support_units
+        )
 
         server_time = client.time
         used_positions = {support.position for support in target_support_units}
@@ -78,7 +329,9 @@ class set_support_unit_base(Module):
             position for position in self.SUPPORT_POSITIONS if position not in used_positions
         ]
         target_removed_support = None
-        if free_positions:
+        if already_in_target:
+            target_position = None
+        elif free_positions:
             target_position = free_positions[0]
         else:
             removable_support_units = [
@@ -116,6 +369,12 @@ class set_support_unit_base(Module):
             removals.append(
                 (self.SUPPORT_LABEL, self.SETTING_TYPE, target_removed_support, False)
             )
+
+        ex_snapshot = await self._equip_best_ex(client, unit_id)
+        if already_in_target:
+            self._log(f"[{unit_name}]已在{self.SUPPORT_LABEL}支援中，已更新最优EX装备")
+            self._log(self._format_unit_training(client, unit_id))
+            return
 
         removed_supports = []
         try:
@@ -156,6 +415,11 @@ class set_support_unit_base(Module):
                     )
                 except Exception as rollback_error:
                     rollback_errors.append(f"{label}: {rollback_error}")
+            if ex_snapshot:
+                try:
+                    await self._restore_ex_snapshot(client, ex_snapshot)
+                except Exception as rollback_error:
+                    rollback_errors.append(f"EX装备: {rollback_error}")
             if rollback_errors:
                 raise PanicError(
                     f"挂载[{unit_name}]失败，且原支援恢复失败："
@@ -166,6 +430,7 @@ class set_support_unit_base(Module):
             raise
 
         self._log(f"成功将[{unit_name}]挂上{self.SUPPORT_LABEL}支援")
+        self._log(self._format_unit_training(client, unit_id))
 
 
 @description('将指定角色设置为好友支援；槽位已满时替换挂得最久的角色')
@@ -211,6 +476,7 @@ class set_clan_support_unit(set_support_unit_base):
     )
     UNIT_CONFIG_KEY = "clan_support_unit_id"
     SUPPORT_LABEL = "团队战/露娜塔"
+    USE_CLAN_BATTLE_EX = True
 
 
 @name('计算兑换角色碎片')
