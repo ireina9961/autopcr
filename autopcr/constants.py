@@ -97,13 +97,14 @@ IOS_HEADERS = {
 def refresh_headers(version: str = None):
     default_ver = '11.7.2'
     if version is not None:
+        version = version.strip()
         with open(os.path.join(CACHE_DIR, 'version.txt'), 'w', encoding='utf-8') as f:
             f.write(version)
             VERSION = version
     else:
         try:
             with open(os.path.join(CACHE_DIR, 'version.txt'), 'r', encoding='utf-8') as f:
-                VERSION = f.read()
+                VERSION = f.read().strip()
         except FileNotFoundError:
             refresh_headers(default_ver)
             return
