@@ -72,6 +72,9 @@ sv_help = f"""
 - {prefix}黎明界开局 <美食殿堂|破晓之星|咲恋救济院|王宫骑士团|拉比林斯> 可以只打部分字
 - {prefix}刷图推荐 [<rank>] [fav] 查询缺口装备的刷图推荐，格式同上
 - {prefix}公会支援 查询公会支援角色配置
+- {prefix}上好友支援 <角色昵称> 将角色挂上好友支援，满槽时替换最早挂上的角色
+- {prefix}上地下城支援 <角色昵称> 将角色挂上地下城支援，满槽时替换最早挂上的角色
+- {prefix}上公会支援 <角色昵称> 将角色挂上团队战/露娜塔支援，满槽时替换最早挂上的角色
 - {prefix}卡池 查看当前卡池
 - {prefix}编队 1 1 春妈 蝶妈 狗妈 水妈 礼妈 便捷设置编队
 - {prefix}一键编队 1 1 [拉满] 队名1 星级角色1 星级角色2 ... 星级角色5 队名2 星级角色1 星级角色2 设置多队编队，一行一个队伍
@@ -486,7 +489,7 @@ async def friend_help(botev: BotEvent):
 """.strip()
     await botev.finish(outp_b64(await drawer.draw_msgs(help_text.split("\n"))))
 
-@sv.on_fullmatch(f"{prefix}清日常所有")
+@sv.on_fullmatch([f"{prefix}清日常所有", f"{prefix}清日常 所有"])
 @wrap_hoshino_event
 @wrap_accountmgr
 async def clean_daily_all(botev: BotEvent, accmgr: AccountManager):
@@ -823,6 +826,32 @@ def pop_int_arg(msg: List[str], default: int) -> int:
 @register_tool("公会支援", 'get_clan_support_unit')
 async def clan_support(botev: BotEvent):
     return {}
+
+
+async def parse_support_unit(botev: BotEvent, config_key: str) -> Dict[str, int]:
+    msg = await botev.message()
+    if not msg:
+        await botev.finish("请输入角色昵称")
+    unit_name = msg.pop(0)
+    unit_id = get_id_from_name(unit_name)
+    if unit_id is None:
+        await botev.finish(f"未知昵称{unit_name}")
+    return {config_key: unit_id * 100 + 1}
+
+
+@register_tool("上好友支援", "set_friend_support_unit")
+async def set_friend_support_unit_tool(botev: BotEvent):
+    return await parse_support_unit(botev, "friend_support_unit_id")
+
+
+@register_tool("上地下城支援", "set_dungeon_support_unit")
+async def set_dungeon_support_unit_tool(botev: BotEvent):
+    return await parse_support_unit(botev, "dungeon_support_unit_id")
+
+
+@register_tool("上公会支援", "set_clan_support_unit")
+async def set_clan_support_unit_tool(botev: BotEvent):
+    return await parse_support_unit(botev, "clan_support_unit_id")
 
 
 @register_tool("公会成员", "clan_member_list")

@@ -33,6 +33,135 @@ class remove_cb_support(Module):
         if not remove:
             raise SkipError("没有会战助战")
 
+
+class set_support_unit_base(Module):
+    ADD_ACTION = 1
+    REMOVE_ACTION = 2
+    SETTING_TYPE: int = 0
+    SUPPORT_LIST_ATTR: str = ""
+    SUPPORT_POSITIONS: Tuple[int, int] = ()
+    UNIT_CONFIG_KEY: str = ""
+    SUPPORT_LABEL: str = ""
+
+    async def do_task(self, client: pcrclient):
+        unit_id = int(self.get_config(self.UNIT_CONFIG_KEY))
+        unit_name = db.get_unit_name(unit_id)
+        if unit_id not in client.data.unit:
+            raise AbortError(f"未持有角色{unit_name}")
+
+        support_info = await client.support_unit_get_setting()
+        support_units = list(getattr(support_info, self.SUPPORT_LIST_ATTR, None) or [])
+        target_support_units = [
+            support
+            for support in support_units
+            if support.position in self.SUPPORT_POSITIONS
+        ]
+
+        if any(support.unit_id == unit_id for support in target_support_units):
+            raise SkipError(f"{unit_name}已在{self.SUPPORT_LABEL}支援中")
+
+        used_positions = {support.position for support in target_support_units}
+        free_positions = [
+            position for position in self.SUPPORT_POSITIONS if position not in used_positions
+        ]
+        removed_support = None
+        if free_positions:
+            target_position = free_positions[0]
+        else:
+            removed_support = min(
+                target_support_units,
+                key=lambda support: (
+                    getattr(support, "support_start_time", 0) or 0,
+                    support.position,
+                ),
+            )
+            target_position = removed_support.position
+            removed_name = db.get_unit_name(removed_support.unit_id)
+            await client.support_unit_change_setting(
+                self.SETTING_TYPE,
+                target_position,
+                self.REMOVE_ACTION,
+                removed_support.unit_id,
+            )
+            self._log(
+                f"{self.SUPPORT_LABEL}支援当前已挂满，"
+                f"成功终止其中[{removed_name}]支援。"
+            )
+
+        try:
+            await client.support_unit_change_setting(
+                self.SETTING_TYPE,
+                target_position,
+                self.ADD_ACTION,
+                unit_id,
+            )
+        except Exception as add_error:
+            if removed_support is not None:
+                try:
+                    await client.support_unit_change_setting(
+                        self.SETTING_TYPE,
+                        target_position,
+                        self.ADD_ACTION,
+                        removed_support.unit_id,
+                    )
+                    self._warn(
+                        f"挂载[{unit_name}]失败，已恢复原支援"
+                        f"[{db.get_unit_name(removed_support.unit_id)}]。"
+                    )
+                except Exception as rollback_error:
+                    raise PanicError(
+                        f"挂载[{unit_name}]失败，且原支援恢复失败：{rollback_error}"
+                    ) from add_error
+            raise
+
+        self._log(f"成功将[{unit_name}]挂上{self.SUPPORT_LABEL}支援")
+
+
+@description('将指定角色设置为好友支援；槽位已满时替换挂得最久的角色')
+@name('上好友支援')
+@default(True)
+@unitchoice("friend_support_unit_id", "支援角色")
+class set_friend_support_unit(set_support_unit_base):
+    # change_setting 中 2 表示好友支援设置，好友支援有 1/2 两个槽位。
+    SETTING_TYPE = 2
+    SUPPORT_LIST_ATTR = "friend_support_units"
+    SUPPORT_POSITIONS = (1, 2)
+    UNIT_CONFIG_KEY = "friend_support_unit_id"
+    SUPPORT_LABEL = "好友"
+
+
+@description('将指定角色设置为地下城公会支援；槽位已满时替换挂得最久的角色')
+@name('上地下城支援')
+@default(True)
+@unitchoice("dungeon_support_unit_id", "支援角色")
+class set_dungeon_support_unit(set_support_unit_base):
+    # change_setting 中 1 表示公会支援设置，位置 1/2 属于地下城。
+    SETTING_TYPE = 1
+    SUPPORT_LIST_ATTR = "clan_support_units"
+    SUPPORT_POSITIONS = (
+        eClanSupportMemberType.DUNGEON_SUPPORT_UNIT_1,
+        eClanSupportMemberType.DUNGEON_SUPPORT_UNIT_2,
+    )
+    UNIT_CONFIG_KEY = "dungeon_support_unit_id"
+    SUPPORT_LABEL = "地下城"
+
+
+@description('将指定角色设置为团队战/露娜塔公会支援；槽位已满时替换挂得最久的角色')
+@name('上公会支援')
+@default(True)
+@unitchoice("clan_support_unit_id", "支援角色")
+class set_clan_support_unit(set_support_unit_base):
+    # change_setting 中 1 表示公会支援设置，位置 3/4 属于团队战/露娜塔。
+    SETTING_TYPE = 1
+    SUPPORT_LIST_ATTR = "clan_support_units"
+    SUPPORT_POSITIONS = (
+        eClanSupportMemberType.CLAN_BATTLE_SUPPORT_UNIT_1,
+        eClanSupportMemberType.CLAN_BATTLE_SUPPORT_UNIT_2,
+    )
+    UNIT_CONFIG_KEY = "clan_support_unit_id"
+    SUPPORT_LABEL = "团队战/露娜塔"
+
+
 @name('计算兑换角色碎片')
 @default(True)
 @booltype('redeem_unit_swap_do', '开换', False)
