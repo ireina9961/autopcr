@@ -102,9 +102,16 @@ class set_support_unit_base(Module):
             star = db.get_ex_equip_star_from_pt(
                 ex.ex_equipment_id, ex.enhancement_pt
             )
-            sub_status = db.get_ex_equip_sub_status_str(
-                ex.ex_equipment_id, ex.sub_status or []
-            )
+            # Most non-rainbow EX equipment has no random-sub-status group.
+            # database.get_ex_equip_sub_status_str assumes the group exists,
+            # so calling it unconditionally turns a successful support change
+            # into a KeyError while merely formatting the result log.
+            if ex.ex_equipment_id in db.ex_equipment_sub_status_group:
+                sub_status = db.get_ex_equip_sub_status_str(
+                    ex.ex_equipment_id, ex.sub_status or []
+                )
+            else:
+                sub_status = ""
             sub_text = f"（{sub_status}）" if sub_status else ""
             ex_lines.append(
                 f"  {slot}号位：{db.get_ex_equip_name(ex.ex_equipment_id, ex.rank)}"
