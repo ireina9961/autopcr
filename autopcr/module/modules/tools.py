@@ -1,4 +1,4 @@
-from typing import List, Set
+from typing import List, Set, Tuple
 
 from ...util.ilp_solver import memory_use_average
 
@@ -48,8 +48,20 @@ class set_support_unit_base(Module):
         unit_name = db.get_unit_name(unit_id)
         if unit_id not in client.data.unit:
             raise AbortError(f"未持有角色{unit_name}")
+        if client.data.unit[unit_id].unit_level <= 10:
+            raise AbortError(
+                f"[{unit_name}]的等级({client.data.unit[unit_id].unit_level})"
+                "过低(<=10级)，不可设置支援"
+            )
 
         support_info = await client.support_unit_get_setting()
+        clan_support_units = list(support_info.clan_support_units or [])
+        friend_support_units = list(support_info.friend_support_units or [])
+        support_groups = (
+            ("好友", 2, friend_support_units, (1, 2)),
+            ("地下城", 1, clan_support_units, (1, 2)),
+            ("团队战/露娜塔", 1, clan_support_units, (3, 4)),
+        )
         support_units = list(getattr(support_info, self.SUPPORT_LIST_ATTR, None) or [])
         target_support_units = [
             support
@@ -60,58 +72,97 @@ class set_support_unit_base(Module):
         if any(support.unit_id == unit_id for support in target_support_units):
             raise SkipError(f"{unit_name}已在{self.SUPPORT_LABEL}支援中")
 
+        server_time = client.time
         used_positions = {support.position for support in target_support_units}
         free_positions = [
             position for position in self.SUPPORT_POSITIONS if position not in used_positions
         ]
-        removed_support = None
+        target_removed_support = None
         if free_positions:
             target_position = free_positions[0]
         else:
-            removed_support = min(
-                target_support_units,
+            removable_support_units = [
+                support
+                for support in target_support_units
+                if server_time - (support.support_start_time or 0) >= 1800
+            ]
+            if not removable_support_units:
+                raise AbortError(
+                    f"{self.SUPPORT_LABEL}支援当前已挂满且均不足30分钟，无法结束支援"
+                )
+            target_removed_support = min(
+                removable_support_units,
                 key=lambda support: (
                     getattr(support, "support_start_time", 0) or 0,
                     support.position,
                 ),
             )
-            target_position = removed_support.position
-            removed_name = db.get_unit_name(removed_support.unit_id)
-            await client.support_unit_change_setting(
-                self.SETTING_TYPE,
-                target_position,
-                self.REMOVE_ACTION,
-                removed_support.unit_id,
-            )
-            self._log(
-                f"{self.SUPPORT_LABEL}支援当前已挂满，"
-                f"成功终止其中[{removed_name}]支援。"
+            target_position = target_removed_support.position
+
+        removals = []
+        for label, setting_type, group_units, positions in support_groups:
+            if setting_type == self.SETTING_TYPE and positions == self.SUPPORT_POSITIONS:
+                continue
+            for support in group_units:
+                if support.position not in positions or support.unit_id != unit_id:
+                    continue
+                if server_time - (support.support_start_time or 0) < 1800:
+                    raise AbortError(
+                        f"[{unit_name}]当前正在{label}支援，且挂上不足30分钟，无法结束支援"
+                    )
+                removals.append((label, setting_type, support, True))
+
+        if target_removed_support is not None:
+            removals.append(
+                (self.SUPPORT_LABEL, self.SETTING_TYPE, target_removed_support, False)
             )
 
+        removed_supports = []
         try:
+            for label, setting_type, support, is_same_unit in removals:
+                await client.support_unit_change_setting(
+                    setting_type,
+                    support.position,
+                    self.REMOVE_ACTION,
+                    support.unit_id,
+                )
+                removed_supports.append((label, setting_type, support))
+                removed_name = db.get_unit_name(support.unit_id)
+                if is_same_unit:
+                    self._log(
+                        f"[{removed_name}]当前正在{label}支援，已成功结束支援"
+                    )
+                else:
+                    self._log(
+                        f"{self.SUPPORT_LABEL}支援当前已挂满，"
+                        f"成功终止其中[{removed_name}]支援。"
+                    )
+
             await client.support_unit_change_setting(
                 self.SETTING_TYPE,
                 target_position,
                 self.ADD_ACTION,
                 unit_id,
             )
-        except Exception as add_error:
-            if removed_support is not None:
+        except Exception as operation_error:
+            rollback_errors = []
+            for label, setting_type, support in reversed(removed_supports):
                 try:
                     await client.support_unit_change_setting(
-                        self.SETTING_TYPE,
-                        target_position,
+                        setting_type,
+                        support.position,
                         self.ADD_ACTION,
-                        removed_support.unit_id,
-                    )
-                    self._warn(
-                        f"挂载[{unit_name}]失败，已恢复原支援"
-                        f"[{db.get_unit_name(removed_support.unit_id)}]。"
+                        support.unit_id,
                     )
                 except Exception as rollback_error:
-                    raise PanicError(
-                        f"挂载[{unit_name}]失败，且原支援恢复失败：{rollback_error}"
-                    ) from add_error
+                    rollback_errors.append(f"{label}: {rollback_error}")
+            if rollback_errors:
+                raise PanicError(
+                    f"挂载[{unit_name}]失败，且原支援恢复失败："
+                    + "; ".join(rollback_errors)
+                ) from operation_error
+            if removed_supports:
+                self._warn(f"挂载[{unit_name}]失败，已恢复原支援")
             raise
 
         self._log(f"成功将[{unit_name}]挂上{self.SUPPORT_LABEL}支援")
