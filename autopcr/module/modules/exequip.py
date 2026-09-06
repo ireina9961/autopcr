@@ -588,6 +588,17 @@ class ex_equip_state(Module):
                             touched.add(key)
                 apply_changes.append((int(unit_id), slot_no, target_serial_id))
 
+        # A piece of EX equipment that must move to another unit is cleared
+        # during the first phase. If its old slot is also empty in the saved
+        # state, apply_changes contains the same clear operation again. The
+        # game rejects that redundant request with result_code 205 even though
+        # the first clear has already succeeded.
+        removed_slots = {(unit_id, slot) for unit_id, slot, _ in remove_changes}
+        apply_changes = [
+            change for change in apply_changes
+            if not (change[2] == 0 and change[:2] in removed_slots)
+        ]
+
         if skipped_missing:
             skipped = ', '.join(map(str, sorted(set(skipped_missing))))
             self._warn(f"跳过{len(set(skipped_missing))}件已不存在的EX装备(serial_id: {skipped})")
