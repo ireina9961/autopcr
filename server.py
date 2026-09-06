@@ -819,9 +819,11 @@ def pop_int_arg(msg: List[str], default: int) -> int:
     if not msg:
         return default
     try:
-        return int(msg.pop(0))
+        value = int(msg[0])
     except (TypeError, ValueError):
         return default
+    msg.pop(0)
+    return value
 
 @register_tool("公会支援", 'get_clan_support_unit')
 async def clan_support(botev: BotEvent):
