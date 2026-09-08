@@ -289,12 +289,13 @@ def _star_cup_book_candidates() -> List[int]:
     return list(range(len(db.star_cup_quest) * 4 + 1))
 
 
-@description('按心碎关卡从高到低扫荡。配置刷取关卡数，超过当前关卡数则从最高本重置刷下一轮，需求已满足时不刷。')
+@description('按心碎关卡从高到低扫荡。配置刷取关卡数，超过当前关卡数则从最高本重置刷下一轮。需求为已有角色升满一专所需心碎，加上每个已开放一专角色的额外储备（含满专角色）；库存满足需求时不刷，大心按10心碎折算。')
 @name('心碎扫荡')
 @conditional_not_execution('force_stop_heart_sweep', [], desc='不刷心碎庆典')
-@inttype('xinsui_sweep_no_campaign_books', '无庆典刷前几本', 2, _heart_book_candidates)
-@inttype('xinsui_sweep_2x_campaign_books', '2倍庆典刷前几本', 2, _heart_book_candidates)
-@inttype('xinsui_sweep_3x_campaign_books', '3倍及以上庆典刷前几本', 2, _heart_book_candidates)
+@inttype('xinsui_sweep_no_campaign_books', '无庆典刷前几本', 0, _heart_book_candidates)
+@inttype('xinsui_sweep_2x_campaign_books', '2倍庆典刷前几本', 9, _heart_book_candidates)
+@inttype('xinsui_sweep_3x_campaign_books', '3倍及以上庆典刷前几本', 9, _heart_book_candidates)
+@inttype('xinsui_sweep_extra_per_unit', '每个专武角色额外屯心碎', 20, list(range(1001)))
 @default(True)
 @tag_stamina_consume
 class xinsui_sweep(investigate_sweep):
@@ -305,7 +306,11 @@ class xinsui_sweep(investigate_sweep):
         return client.data.get_heart_piece_campaign_times()
 
     def required_count(self, client: pcrclient) -> int:
-        return client.data.get_suixin_demand()[1]
+        # Count maxed and not-yet-equipped units too, but only owned units with unique 1.
+        unique_units = db.unit_unique_equip.get(1, {})
+        unit_count = sum(unit_id in unique_units for unit_id in client.data.unit)
+        reserve = unit_count * self.get_config('xinsui_sweep_extra_per_unit')
+        return client.data.get_suixin_demand()[1] + reserve
 
     def stored_count(self, client: pcrclient) -> int:
         return client.data.get_inventory(db.xinsui) + client.data.get_inventory(db.heart) * 10
